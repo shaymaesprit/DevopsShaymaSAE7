@@ -36,7 +36,7 @@ spec:
     spec:
       containers:
         - name: spring-app
-          image: <DOCKERHUB_USERNAME>/spring-app:latest
+          image: chayma123/student-management:latest
           ports:
             - containerPort: 8080
           env:
