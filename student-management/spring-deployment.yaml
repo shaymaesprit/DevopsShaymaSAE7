@@ -35,8 +35,9 @@ spec:
         app: spring-app
     spec:
       containers:
-        - name: spring-app
-image: shaymaesprit/student-management:latest
+        - name: springboot
+    image: ton-image-springboot:latest
+    imagePullPolicy: IfNotPresent 
           ports:
             - containerPort: 8080
           env:
