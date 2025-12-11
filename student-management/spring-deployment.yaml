@@ -16,7 +16,6 @@ type: Opaque
 data:
   DB_USER: cm9vdA==
   DB_PASS: cm9vdA==
-  # "root" encodé en base64
 
 ---
 apiVersion: apps/v1
