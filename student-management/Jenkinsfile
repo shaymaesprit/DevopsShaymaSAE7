@@ -1,52 +1,213 @@
 pipeline {
     agent any
-
+    
     tools {
         jdk 'JAVA_HOME'
         maven 'M2_HOME'
     }
-
+    
+    environment {
+        // Variables Docker
+        DOCKER_IMAGE = "spring-boot-app"
+        DOCKER_TAG = "${BUILD_NUMBER}"
+        
+        // Kubernetes
+        KUBE_NAMESPACE = "devops"
+        KUBE_DEPLOYMENT = "spring-app"
+        
+        // Paths
+        PROJECT_DIR = "student-management"
+    }
+    
     stages {
-
-        stage('Checkout') {
+        stage('📥 Checkout Code') {
             steps {
+                echo "========== CHECKOUT CODE =========="
                 git branch: 'main', url: 'https://github.com/shaymaesprit/DevopsShaymaSAE7.git'
+                sh 'ls -la'
             }
         }
-
-        stage('Build Maven') {
+        
+        stage('🏗️ Build Maven') {
             steps {
-                dir('student-management') {
+                echo "========== BUILD MAVEN =========="
+                dir("${PROJECT_DIR}") {
                     sh 'mvn clean package -DskipTests'
                 }
             }
         }
-        stage('SonarQube Analysis') {
+        
+        stage('🔍 SonarQube Analysis') {
             steps {
-                dir('student-management') {
+                echo "========== SONARQUBE ANALYSIS =========="
+                dir("${PROJECT_DIR}") {
                     withSonarQubeEnv('sonar') {
                         sh """
-                        mvn sonar:sonar \
-                        -Dsonar.projectKey=student-management \
-                        -Dsonar.projectName=Student-Management
+                            mvn sonar:sonar \
+                            -Dsonar.projectKey=student-management \
+                            -Dsonar.projectName=Student-Management \
+                            -Dsonar.host.url=http://localhost:9000
                         """
                     }
                 }
             }
         }
-stage('Deploy to Kubernetes') {
+        
+        stage('🐳 Build Docker Image') {
             steps {
-                sh """
-                    kubectl apply -f mysql-deployment.yaml -n devops
-                    kubectl apply -f spring-deployment.yaml -n devops
-                """
+                echo "========== BUILD DOCKER IMAGE =========="
+                dir("${PROJECT_DIR}") {
+                    sh '''
+                        # Évaluer l'environnement Docker de Minikube
+                        eval $(minikube docker-env)
+                        
+                        # Construire l'image Docker
+                        docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+                        docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest
+                        
+                        # Vérifier que l'image existe
+                        docker images | grep ${DOCKER_IMAGE}
+                    '''
+                }
             }
         }
-
-    
-       
-       
-
         
+        stage('✅ Verify Kubernetes Access') {
+            steps {
+                echo "========== VERIFY KUBERNETES ACCESS =========="
+                sh '''
+                    echo "Checking kubectl access..."
+                    kubectl get nodes
+                    
+                    echo "Checking namespace..."
+                    kubectl get namespace ${KUBE_NAMESPACE} || kubectl create namespace ${KUBE_NAMESPACE}
+                    
+                    echo "Listing current resources..."
+                    kubectl get pods -n ${KUBE_NAMESPACE}
+                    kubectl get svc -n ${KUBE_NAMESPACE}
+                '''
+            }
+        }
+        
+        stage('📦 Deploy MySQL') {
+            steps {
+                echo "========== DEPLOY MYSQL =========="
+                sh '''
+                    echo "Deploying MySQL with PersistentVolume..."
+                    kubectl apply -f ${PROJECT_DIR}/../mysql-deployment.yaml -n ${KUBE_NAMESPACE}
+                    
+                    echo "Waiting for MySQL to be ready..."
+                    kubectl rollout status deployment/mysql-deployment -n ${KUBE_NAMESPACE} --timeout=5m || true
+                    
+                    sleep 10
+                '''
+            }
+        }
+        
+        stage('🚀 Deploy Spring Boot Application') {
+            steps {
+                echo "========== DEPLOY SPRING BOOT =========="
+                sh '''
+                    echo "Applying ConfigMap and Secret..."
+                    kubectl apply -f ${PROJECT_DIR}/../spring-deployment.yaml -n ${KUBE_NAMESPACE}
+                    
+                    echo "Updating Spring Boot deployment with new image..."
+                    kubectl set image deployment/${KUBE_DEPLOYMENT} \
+                        spring-app=${DOCKER_IMAGE}:${DOCKER_TAG} \
+                        -n ${KUBE_NAMESPACE} || true
+                    
+                    echo "Waiting for rollout to complete..."
+                    kubectl rollout status deployment/${KUBE_DEPLOYMENT} -n ${KUBE_NAMESPACE} --timeout=5m || true
+                '''
+            }
+        }
+        
+        stage('🧪 Post-Deployment Tests') {
+            steps {
+                echo "========== POST-DEPLOYMENT TESTS =========="
+                sh '''
+                    echo "Waiting for pods to stabilize..."
+                    sleep 30
+                    
+                    echo "Checking pod status..."
+                    kubectl get pods -n ${KUBE_NAMESPACE} -o wide
+                    
+                    echo "Checking service status..."
+                    kubectl get svc -n ${KUBE_NAMESPACE}
+                    
+                    echo "Checking recent logs..."
+                    kubectl logs -n ${KUBE_NAMESPACE} -l app=spring-app --tail=50 || true
+                    
+                    echo "Testing MySQL connectivity..."
+                    kubectl run -it --rm mysql-test --image=mysql:8.0 --restart=Never \
+                        -n ${KUBE_NAMESPACE} -- \
+                        mysql -h mysql-service -u appuser -papppassword -D student_db -e "SELECT 1;" || true
+                '''
+            }
+        }
+        
+        stage('📊 Deployment Report') {
+            steps {
+                echo "========== DEPLOYMENT REPORT =========="
+                sh '''
+                    echo ""
+                    echo "╔══════════════════════════════════════════════════════╗"
+                    echo "║           DEPLOYMENT SUMMARY                        ║"
+                    echo "╚══════════════════════════════════════════════════════╝"
+                    echo ""
+                    echo "Build Information:"
+                    echo "  • Build Number: ${BUILD_NUMBER}"
+                    echo "  • Docker Image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                    echo "  • Namespace: ${KUBE_NAMESPACE}"
+                    echo ""
+                    echo "Kubernetes Resources:"
+                    echo ""
+                    echo "Pods:"
+                    kubectl get pods -n ${KUBE_NAMESPACE} -o wide
+                    echo ""
+                    echo "Services:"
+                    kubectl get svc -n ${KUBE_NAMESPACE} -o wide
+                    echo ""
+                    echo "Persistent Volumes:"
+                    kubectl get pvc -n ${KUBE_NAMESPACE}
+                    echo ""
+                    echo "ConfigMaps and Secrets:"
+                    kubectl get configmap,secret -n ${KUBE_NAMESPACE}
+                    echo ""
+                    echo "Application URL:"
+                    echo "  • http://192.168.49.2:30080"
+                    echo ""
+                    echo "Useful Commands:"
+                    echo "  • View logs: kubectl logs -n ${KUBE_NAMESPACE} -l app=spring-app"
+                    echo "  • Port forward: kubectl port-forward -n ${KUBE_NAMESPACE} svc/spring-service 8080:8080"
+                    echo "  • Get service URL: minikube service spring-service -n ${KUBE_NAMESPACE} --url"
+                    echo ""
+                '''
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo "========== CLEANUP =========="
+            sh '''
+                echo "Cleaning up Docker resources..."
+                docker system prune -f --volumes || true
+            '''
+        }
+        
+        success {
+            echo "✅ Pipeline executed successfully!"
+            echo "Application deployed to: http://192.168.49.2:30080"
+        }
+        
+        failure {
+            echo "❌ Pipeline failed!"
+            echo "Check the logs above for details."
+        }
+        
+        unstable {
+            echo "⚠️ Pipeline unstable - some tests may have failed"
+        }
     }
 }
