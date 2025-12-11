@@ -37,24 +37,25 @@ pipeline {
             }
         }
         
-        stage('🔍 SonarQube Analysis') {
-            steps {
-                echo "========== SONARQUBE ANALYSIS =========="
-                dir("${PROJECT_DIR}") {
-                    withSonarQubeEnv('sonar') {
-                        withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
-                            sh """
-                                mvn sonar:sonar \
-                                -Dsonar.projectKey=student-management \
-                                -Dsonar.projectName=Student-Management \
-                                -Dsonar.host.url=http://localhost:9000 \
-                                -Dsonar.login=$SONAR_TOKEN
-                            """
-                        }
-                    }
+       stage('🔍 SonarQube Analysis') {
+    steps {
+        echo "========== SONARQUBE ANALYSIS =========="
+        dir("${PROJECT_DIR}") {
+            withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
+                withSonarQubeEnv('sonar') {
+                    sh """
+                        mvn sonar:sonar \
+                        -Dsonar.projectKey=student-management \
+                        -Dsonar.projectName=Student-Management \
+                        -Dsonar.host.url=$SONAR_HOST_URL \
+                        -Dsonar.login=$SONAR_TOKEN
+                    """
                 }
             }
         }
+    }
+}
+
         
         stage('🐳 Build Docker Image') {
             steps {
