@@ -36,8 +36,8 @@ spec:
     spec:
       containers:
         - name: springboot
-    image: ton-image-springboot:latest
-    imagePullPolicy: IfNotPresent 
+          image: ton-image-springboot:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           env:
@@ -71,4 +71,3 @@ spec:
       nodePort: 30080
   selector:
     app: spring-app
-
