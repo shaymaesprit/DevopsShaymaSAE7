@@ -1,20 +1,18 @@
+cat > mysql-deployment.yaml << 'EOF'
 ---
-# 1. PersistentVolume (PV)
 apiVersion: v1
 kind: PersistentVolume
 metadata:
   name: mysql-pv
-  namespace: devops
 spec:
   capacity:
     storage: 5Gi
   accessModes:
     - ReadWriteOnce
   hostPath:
-    path: /data/mysql
+    path: "/mnt/data/mysql"
 
 ---
-# 2. PersistentVolumeClaim (PVC)
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -28,13 +26,15 @@ spec:
       storage: 5Gi
 
 ---
-# 3. Deployment MySQL
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mysql
+  name: mysql-deployment
   namespace: devops
+  labels:
+    app: mysql
 spec:
+  replicas: 1
   selector:
     matchLabels:
       app: mysql
@@ -45,37 +45,66 @@ spec:
     spec:
       containers:
       - name: mysql
-        image: mysql:5.7
+        image: mysql:8.0
         ports:
         - containerPort: 3306
+          name: mysql
         env:
         - name: MYSQL_ROOT_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: root-password
+          value: "root123"
         - name: MYSQL_DATABASE
-          value: your_database_name
+          value: "student_db"
+        - name: MYSQL_USER
+          value: "student_user"
+        - name: MYSQL_PASSWORD
+          value: "student@123"
         volumeMounts:
         - name: mysql-storage
           mountPath: /var/lib/mysql
+        livenessProbe:
+          exec:
+            command:
+            - mysqladmin
+            - ping
+            - -h
+            - localhost
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - mysqladmin
+            - ping
+            - -h
+            - localhost
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
       volumes:
       - name: mysql-storage
         persistentVolumeClaim:
           claimName: mysql-pvc
 
 ---
-# 4. Service MySQL (ClusterIP)
 apiVersion: v1
 kind: Service
 metadata:
   name: mysql-service
   namespace: devops
+  labels:
+    app: mysql
 spec:
   selector:
     app: mysql
-  type: ClusterIP
   ports:
   - protocol: TCP
     port: 3306
     targetPort: 3306
+  type: ClusterIP
+EOF
