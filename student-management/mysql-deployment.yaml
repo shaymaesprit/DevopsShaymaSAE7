@@ -1,4 +1,4 @@
-cat > mysql-deployment.yaml << 'EOF'
+
 ---
 # PersistentVolume
 apiVersion: v1
@@ -77,4 +77,4 @@ spec:
     port: 3306
     targetPort: 3306
   type: ClusterIP
-EOF
+
