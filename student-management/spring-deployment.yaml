@@ -36,7 +36,7 @@ spec:
     spec:
       containers:
         - name: spring-app
-          image: chayma123/student-management:latest
+image: shaymaesprit/student-management:latest
           ports:
             - containerPort: 8080
           env:
