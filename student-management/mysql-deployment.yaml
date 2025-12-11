@@ -1,16 +1,19 @@
-cat > mysql-deployment.yaml << 'EOF'
+---
+# PersistentVolume
 apiVersion: v1
 kind: PersistentVolume
 metadata:
   name: mysql-pv
 spec:
   capacity:
-    storage: 1Gi
+    storage: 5Gi
   accessModes:
     - ReadWriteOnce
   hostPath:
-    path: /data/mysql
+    path: "/mnt/data/mysql"
+
 ---
+# PersistentVolumeClaim
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -21,12 +24,14 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 1Gi
+      storage: 5Gi
+
 ---
+# MySQL Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mysql
+  name: mysql-deployment
   namespace: devops
 spec:
   replicas: 1
@@ -39,23 +44,25 @@ spec:
         app: mysql
     spec:
       containers:
-        - name: mysql
-          image: mysql:8.0
-          env:
-            - name: MYSQL_ROOT_PASSWORD
-              value: root123
-            - name: MYSQL_DATABASE
-              value: springdb
-          ports:
-            - containerPort: 3306
-          volumeMounts:
-            - name: mysql-storage
-              mountPath: /var/lib/mysql
-      volumes:
+      - name: mysql
+        image: mysql:8.0
+        ports:
+        - containerPort: 3306
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: "rootpassword"
+        - name: MYSQL_DATABASE
+          value: "student_db"
+        volumeMounts:
         - name: mysql-storage
-          persistentVolumeClaim:
-            claimName: mysql-pvc
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: mysql-storage
+        persistentVolumeClaim:
+          claimName: mysql-pvc
+
 ---
+# MySQL Service (ClusterIP)
 apiVersion: v1
 kind: Service
 metadata:
@@ -65,7 +72,7 @@ spec:
   selector:
     app: mysql
   ports:
-    - port: 3306
-      targetPort: 3306
+  - protocol: TCP
+    port: 3306
+    targetPort: 3306
   type: ClusterIP
-EOF
