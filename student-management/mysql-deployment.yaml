@@ -108,3 +108,5 @@ spec:
     targetPort: 3306
   type: ClusterIP
 EOF
+
+echo "✅ mysql-deployment.yaml created"
