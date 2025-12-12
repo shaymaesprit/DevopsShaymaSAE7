@@ -10,11 +10,11 @@ pipeline {
         // Docker
         DOCKER_IMAGE = "spring-boot-app"
         DOCKER_TAG = "${BUILD_NUMBER}"
-
+        
         // Kubernetes
         KUBE_NAMESPACE = "devops"
         KUBE_DEPLOYMENT = "spring-app"
-
+        
         // Projet
         PROJECT_DIR = "student-management"
     }
@@ -41,9 +41,8 @@ pipeline {
             steps {
                 echo "========== SONARQUBE ANALYSIS =========="
                 dir("${PROJECT_DIR}") {
-                    // Utilisez l'ID exact du token Jenkins
                     withCredentials([string(credentialsId: 'sonar', variable: 'SONAR_TOKEN')]) {
-                        withSonarQubeEnv('sonar') {
+                        withSonarQubeEnv('sonar') { // Nom exact défini dans Jenkins
                             sh """
                                 mvn sonar:sonar \
                                 -Dsonar.projectKey=student-management \
@@ -53,12 +52,6 @@ pipeline {
                             """
                         }
                     }
-                }
-            }
-            // Ne bloque pas le pipeline si SonarQube échoue
-            post {
-                failure {
-                    echo "⚠️ SonarQube analysis failed. Continuing pipeline..."
                 }
             }
         }
