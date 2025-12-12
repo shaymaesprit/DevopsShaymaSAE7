@@ -41,7 +41,7 @@ pipeline {
     steps {
         echo "========== SONARQUBE ANALYSIS =========="
         dir("${PROJECT_DIR}") {
-            withCredentials([string(credentialsId: 'sonar', variable: 'SONAR_TOKEN')]) {
+            withCredentials([string(credentialsId: 'SONARR', variable: 'SONAR_TOKEN')]) {
                 withSonarQubeEnv('sonar') {
                     sh """
                         mvn sonar:sonar \
