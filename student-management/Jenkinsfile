@@ -42,9 +42,9 @@ pipeline {
         echo "========== SONARQUBE ANALYSIS =========="
         dir("${PROJECT_DIR}") {
             withCredentials([string(credentialsId: 'SONARR', variable: 'SONAR_TOKEN')]) {
-                withSonarQubeEnv('sonar') {
+                withSonarQubeEnv('SONARR') {
                     sh """
-                        mvn sonar:sonar \
+                        mvn sonar:SONARR \
                         -Dsonar.projectKey=student-management \
                         -Dsonar.projectName=Student-Management \
                         -Dsonar.host.url=$SONAR_HOST_URL \
