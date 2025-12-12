@@ -41,21 +41,20 @@ pipeline {
     steps {
         echo "========== SONARQUBE ANALYSIS =========="
         dir("${PROJECT_DIR}") {
-           withSonarQubeEnv('sonar') {  'sonar' = SONARR
-    sh """
-        mvn sonar:sonar \
-        -Dsonar.projectKey=student-management \
-        -Dsonar.projectName=Student-Management \
-        -Dsonar.host.url=$SONAR_HOST_URL \
-        -Dsonar.login=$SONAR_TOKEN
-    """
-}
-
+            withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
+                withSonarQubeEnv('sonar') { // Nom exact défini dans Jenkins
+                    sh """
+                        mvn sonar:sonar \
+                        -Dsonar.projectKey=student-management \
+                        -Dsonar.projectName=Student-Management \
+                        -Dsonar.host.url=$SONAR_HOST_URL \
+                        -Dsonar.login=$SONAR_TOKEN
+                    """
+                }
             }
         }
     }
 }
-
         
         stage('🐳 Build Docker Image') {
             steps {
