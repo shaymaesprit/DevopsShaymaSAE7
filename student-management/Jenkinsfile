@@ -2,19 +2,19 @@ pipeline {
     agent any
 
     tools {
-        jdk 'JAVA_HOME'
-        maven 'M2_HOME'
+        jdk 'JAVA_HOME'       // Nom du JDK configuré dans Jenkins
+        maven 'M2_HOME'       // Nom de Maven configuré dans Jenkins
     }
 
     environment {
         // Docker
         DOCKER_IMAGE = "spring-boot-app"
         DOCKER_TAG = "${BUILD_NUMBER}"
-        
+
         // Kubernetes
         KUBE_NAMESPACE = "devops"
         KUBE_DEPLOYMENT = "spring-app"
-        
+
         // Projet
         PROJECT_DIR = "student-management"
     }
@@ -41,14 +41,15 @@ pipeline {
             steps {
                 echo "========== SONARQUBE ANALYSIS =========="
                 dir("${PROJECT_DIR}") {
-                    withCredentials([string(credentialsId: 'sonar', variable: 'sonnar')]) {
+                    // Utilisation du token secret Jenkins
+                    withCredentials([string(credentialsId: 'sonar', variable: 'SONAR_TOKEN')]) {
                         withSonarQubeEnv('sonar') { // Nom exact défini dans Jenkins
                             sh """
                                 mvn sonar:sonar \
                                 -Dsonar.projectKey=student-management \
                                 -Dsonar.projectName=Student-Management \
                                 -Dsonar.host.url=${SONAR_HOST_URL} \
-                                -Dsonar.login=${sonnar}
+                                -Dsonar.login=${SONAR_TOKEN}
                             """
                         }
                     }
