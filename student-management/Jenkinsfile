@@ -105,14 +105,25 @@ pipeline {
             steps {
                 echo "========== DEPLOY MYSQL =========="
                 sh '''
-                    if [ -f "${PROJECT_DIR}/../mysql-deployment.yaml" ]; then
-                        kubectl apply -f ${PROJECT_DIR}/../mysql-deployment.yaml -n ${KUBE_NAMESPACE}
-                        kubectl rollout status deployment/mysql-deployment -n ${KUBE_NAMESPACE} --timeout=5m
-                        sleep 15
-                    else
-                        echo "Warning: mysql-deployment.yaml not found"
+                    set -e
+                    MYSQL_YAML="${PROJECT_DIR}/../mysql-deployment.yaml"
+                    
+                    if [ ! -f "$MYSQL_YAML" ]; then
+                        echo "❌ Error: mysql-deployment.yaml not found at $MYSQL_YAML"
+                        echo "Current directory: $(pwd)"
+                        echo "Contents of $(dirname $MYSQL_YAML):"
+                        ls -la $(dirname $MYSQL_YAML) || true
                         exit 1
                     fi
+                    
+                    echo "✅ Found mysql-deployment.yaml, applying..."
+                    kubectl apply -f $MYSQL_YAML -n ${KUBE_NAMESPACE}
+                    
+                    echo "Waiting for MySQL deployment to be ready..."
+                    kubectl rollout status deployment/mysql-deployment -n ${KUBE_NAMESPACE} --timeout=5m
+                    
+                    echo "MySQL deployment successful!"
+                    sleep 15
                 '''
             }
         }
@@ -121,16 +132,29 @@ pipeline {
             steps {
                 echo "========== DEPLOY SPRING BOOT =========="
                 sh '''
-                    if [ -f "${PROJECT_DIR}/../spring-deployment.yaml" ]; then
-                        kubectl apply -f ${PROJECT_DIR}/../spring-deployment.yaml -n ${KUBE_NAMESPACE}
-                        kubectl set image deployment/${KUBE_DEPLOYMENT} \
-                            spring-app=${DOCKER_IMAGE}:${DOCKER_TAG} \
-                            -n ${KUBE_NAMESPACE}
-                        kubectl rollout status deployment/${KUBE_DEPLOYMENT} -n ${KUBE_NAMESPACE} --timeout=5m
-                    else
-                        echo "Warning: spring-deployment.yaml not found"
+                    set -e
+                    SPRING_YAML="${PROJECT_DIR}/../spring-deployment.yaml"
+                    
+                    if [ ! -f "$SPRING_YAML" ]; then
+                        echo "❌ Error: spring-deployment.yaml not found at $SPRING_YAML"
+                        echo "Current directory: $(pwd)"
+                        echo "Contents of $(dirname $SPRING_YAML):"
+                        ls -la $(dirname $SPRING_YAML) || true
                         exit 1
                     fi
+                    
+                    echo "✅ Found spring-deployment.yaml, applying..."
+                    kubectl apply -f $SPRING_YAML -n ${KUBE_NAMESPACE}
+                    
+                    echo "Updating image to ${DOCKER_IMAGE}:${DOCKER_TAG}..."
+                    kubectl set image deployment/${KUBE_DEPLOYMENT} \
+                        spring-app=${DOCKER_IMAGE}:${DOCKER_TAG} \
+                        -n ${KUBE_NAMESPACE}
+                    
+                    echo "Waiting for Spring Boot deployment to be ready..."
+                    kubectl rollout status deployment/${KUBE_DEPLOYMENT} -n ${KUBE_NAMESPACE} --timeout=5m
+                    
+                    echo "Spring Boot deployment successful!"
                 '''
             }
         }
