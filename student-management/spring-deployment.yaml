@@ -1,12 +1,21 @@
+---
+# ConfigMap pour Spring Boot
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: spring-config
   namespace: devops
 data:
-  DB_URL: jdbc:mysql://mysql-service:3306/studentdb
+  # Noms de variables reconnus par Spring Boot
+  SPRING_DATASOURCE_URL: jdbc:mysql://mysql-service:3306/student_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+  SPRING_JPA_HIBERNATE_DDL_AUTO: update
+  SPRING_JPA_SHOW_SQL: "true"
+  SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.MySQL8Dialect
+  # Configuration serveur
+  SERVER_PORT: "8080"
 
 ---
+# Secret pour les credentials
 apiVersion: v1
 kind: Secret
 metadata:
@@ -14,10 +23,15 @@ metadata:
   namespace: devops
 type: Opaque
 data:
-  DB_USER: cm9vdA==
-  DB_PASS: cm9vdA==
+  # Les noms doivent correspondre à ceux attendus par Spring Boot
+  SPRING_DATASOURCE_USERNAME: cm9vdA==           # echo -n "root" | base64
+  SPRING_DATASOURCE_PASSWORD: cm9vdDEyMw==       # echo -n "root123" | base64
+  # Alternative si votre app utilise d'autres noms
+  DB_USERNAME: cm9vdA==
+  DB_PASSWORD: cm9vdDEyMw==
 
 ---
+# Deployment Spring Boot
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -40,23 +54,56 @@ spec:
           ports:
             - containerPort: 8080
           env:
-            - name: DB_URL
+            # Configuration depuis ConfigMap
+            - name: SPRING_DATASOURCE_URL
               valueFrom:
                 configMapKeyRef:
                   name: spring-config
-                  key: DB_URL
-            - name: DB_USER
+                  key: SPRING_DATASOURCE_URL
+            - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+              valueFrom:
+                configMapKeyRef:
+                  name: spring-config
+                  key: SPRING_JPA_HIBERNATE_DDL_AUTO
+            - name: SERVER_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: spring-config
+                  key: SERVER_PORT
+            # Credentials depuis Secret
+            - name: SPRING_DATASOURCE_USERNAME
               valueFrom:
                 secretKeyRef:
                   name: spring-secret
-                  key: DB_USER
-            - name: DB_PASS
+                  key: SPRING_DATASOURCE_USERNAME
+            - name: SPRING_DATASOURCE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: spring-secret
-                  key: DB_PASS
+                  key: SPRING_DATASOURCE_PASSWORD
+          # Health checks
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 90
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/ready
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
 
 ---
+# Service NodePort
 apiVersion: v1
 kind: Service
 metadata:
@@ -65,7 +112,8 @@ metadata:
 spec:
   type: NodePort
   ports:
-    - port: 8080
+    - name: http
+      port: 8080
       targetPort: 8080
       nodePort: 30080
   selector:
