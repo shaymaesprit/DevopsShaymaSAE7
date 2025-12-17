@@ -1,37 +1,3 @@
----
-# ConfigMap pour Spring Boot
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: spring-config
-  namespace: devops
-data:
-  # Noms de variables reconnus par Spring Boot
-  SPRING_DATASOURCE_URL: jdbc:mysql://mysql-service:3306/student_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-  SPRING_JPA_HIBERNATE_DDL_AUTO: update
-  SPRING_JPA_SHOW_SQL: "true"
-  SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: org.hibernate.dialect.MySQL8Dialect
-  # Configuration serveur
-  SERVER_PORT: "8080"
-
----
-# Secret pour les credentials
-apiVersion: v1
-kind: Secret
-metadata:
-  name: spring-secret
-  namespace: devops
-type: Opaque
-data:
-  # Les noms doivent correspondre à ceux attendus par Spring Boot
-  SPRING_DATASOURCE_USERNAME: cm9vdA==           # echo -n "root" | base64
-  SPRING_DATASOURCE_PASSWORD: cm9vdDEyMw==       # echo -n "root123" | base64
-  # Alternative si votre app utilise d'autres noms
-  DB_USERNAME: cm9vdA==
-  DB_PASSWORD: cm9vdDEyMw==
-
----
-# Deployment Spring Boot
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -49,12 +15,12 @@ spec:
     spec:
       containers:
         - name: springboot
-          image: ton-image-springboot:latest
+          image: <ton-image-springboot>:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           env:
-            # Configuration depuis ConfigMap
+            # From ConfigMap
             - name: SPRING_DATASOURCE_URL
               valueFrom:
                 configMapKeyRef:
@@ -70,7 +36,7 @@ spec:
                 configMapKeyRef:
                   name: spring-config
                   key: SERVER_PORT
-            # Credentials depuis Secret
+            # From Secret
             - name: SPRING_DATASOURCE_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -81,40 +47,15 @@ spec:
                 secretKeyRef:
                   name: spring-secret
                   key: SPRING_DATASOURCE_PASSWORD
-          # Health checks
           livenessProbe:
             httpGet:
               path: /actuator/health
               port: 8080
-            initialDelaySeconds: 90
+            initialDelaySeconds: 120
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /actuator/health/ready
+              path: /actuator/health
               port: 8080
             initialDelaySeconds: 30
             periodSeconds: 5
-          resources:
-            requests:
-              memory: "512Mi"
-              cpu: "250m"
-            limits:
-              memory: "1Gi"
-              cpu: "500m"
-
----
-# Service NodePort
-apiVersion: v1
-kind: Service
-metadata:
-  name: spring-service
-  namespace: devops
-spec:
-  type: NodePort
-  ports:
-    - name: http
-      port: 8080
-      targetPort: 8080
-      nodePort: 30080
-  selector:
-    app: spring-app
