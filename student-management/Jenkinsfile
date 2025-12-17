@@ -86,17 +86,17 @@ pipeline {
             }
         }
 
-        stage('🐳 Build Docker Image') {
-            steps {
-                echo "========== BUILD DOCKER IMAGE =========="
-                dir("${PROJECT_DIR}") {
-                    sh """
-                        minikube image build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
-                        docker images | grep ${DOCKER_IMAGE} || true
-                    """
-                }
-            }
+       stage('🐳 Build Docker Image') {
+    steps {
+        echo "========== BUILD DOCKER IMAGE =========="
+        dir("${PROJECT_DIR}") {
+            sh """
+                minikube image build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+                docker images | grep ${DOCKER_IMAGE} || true
+            """
         }
+    }
+}
 
         stage('✅ Verify Kubernetes Access') {
             steps {
