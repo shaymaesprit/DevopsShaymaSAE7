@@ -1,3 +1,9 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: devops
 
 ---
 # PersistentVolume
@@ -10,8 +16,9 @@ spec:
     storage: 5Gi
   accessModes:
     - ReadWriteOnce
+  storageClassName: standard
   hostPath:
-    path: "/mnt/data/mysql"
+    path: /data/mysql
 
 ---
 # PersistentVolumeClaim
@@ -23,16 +30,48 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  storageClassName: standard
   resources:
     requests:
       storage: 5Gi
+
+---
+# MySQL Secret (credentials)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+  namespace: devops
+type: Opaque
+stringData:
+  mysql-root-password: root
+  mysql-user: devops
+  mysql-password: devops123
+
+---
+# MySQL ConfigMap (initialization SQL)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-init
+  namespace: devops
+data:
+  init.sql: |
+    CREATE DATABASE IF NOT EXISTS student_db;
+    USE student_db;
+    CREATE TABLE IF NOT EXISTS students (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      email VARCHAR(100),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
 
 ---
 # MySQL Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mysql-deployment
+  name: mysql
   namespace: devops
 spec:
   replicas: 1
@@ -51,16 +90,41 @@ spec:
         - containerPort: 3306
         env:
         - name: MYSQL_ROOT_PASSWORD
-          value: root
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: mysql-root-password
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: mysql-user
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: mysql-password
         - name: MYSQL_DATABASE
-          value: "student_db"
+          value: student_db
         volumeMounts:
         - name: mysql-storage
           mountPath: /var/lib/mysql
+        - name: mysql-init
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
       volumes:
       - name: mysql-storage
         persistentVolumeClaim:
           claimName: mysql-pvc
+      - name: mysql-init
+        configMap:
+          name: mysql-init
 
 ---
 # MySQL Service (ClusterIP)
@@ -70,11 +134,9 @@ metadata:
   name: mysql-service
   namespace: devops
 spec:
+  type: ClusterIP
   selector:
     app: mysql
   ports:
-  - protocol: TCP
-    port: 3306
+  - port: 3306
     targetPort: 3306
-  type: ClusterIP
-
