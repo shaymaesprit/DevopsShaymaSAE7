@@ -1,154 +1,128 @@
 pipeline {
     agent any
-
-    tools {
-        jdk 'JAVA_HOME'       // Nom du JDK configuré dans Jenkins
-        maven 'M2_HOME'       // Nom de Maven configuré dans Jenkins
-    }
-
+    
     environment {
-        // Docker
         DOCKER_IMAGE = "spring-boot-app"
         DOCKER_TAG = "${BUILD_NUMBER}"
-
-        // Kubernetes
         KUBE_NAMESPACE = "devops"
-        KUBE_DEPLOYMENT = "spring-app"
-
-        // Projet
-        PROJECT_DIR = "student-management"
     }
-
+    
     stages {
-        stage('📥 Checkout Code') {
+        stage('Checkout') {
             steps {
-                echo "========== CHECKOUT CODE =========="
-                git branch: 'main', url: 'https://github.com/shaymaesprit/DevopsShaymaSAE7.git'
-                sh 'ls -la'
+                echo '========== Checking out code =========='
+                checkout scm
             }
         }
-
-        stage('🏗️ Build Maven') {
+        
+        stage('Build with Maven') {
             steps {
-                echo "========== BUILD MAVEN =========="
-                dir("${PROJECT_DIR}") {
-                    sh 'mvn clean package -DskipTests'
-                }
+                echo '========== Building application with Maven =========='
+                sh './mvnw clean package -DskipTests'
             }
         }
-
-        stage('🔍 SonarQube Analysis') {
+        
+        stage('Build Docker Image') {
             steps {
-                echo "========== SONARQUBE ANALYSIS =========="
-                dir("${PROJECT_DIR}") {
-                    // Utilisation du token secret Jenkins
-                    withCredentials([string(credentialsId: 'sonar', variable: 'SONAR_TOKEN')]) {
-                        withSonarQubeEnv('sonar') { // Nom exact défini dans Jenkins
-                            sh """
-                                mvn sonar:sonar \
-                                -Dsonar.projectKey=student-management \
-                                -Dsonar.projectName=Student-Management \
-                                -Dsonar.host.url=${SONAR_HOST_URL} \
-                                -Dsonar.login=${SONAR_TOKEN}
-                            """
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('🐳 Build Docker Image') {
-            steps {
-                echo "========== BUILD DOCKER IMAGE =========="
-                dir("${PROJECT_DIR}") {
+                echo '========== Building Docker image using host Docker =========='
+                script {
+                    // Use the host Docker daemon (not Minikube's)
                     sh '''
-                        eval $(minikube docker-env)
                         docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
                         docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest
+                        echo "Docker images built successfully"
                         docker images | grep ${DOCKER_IMAGE}
                     '''
                 }
             }
         }
-
-        stage('✅ Verify Kubernetes Access') {
+        
+        stage('Load image into Minikube') {
             steps {
-                echo "========== VERIFY KUBERNETES ACCESS =========="
+                echo '========== Loading Docker image into Minikube =========='
                 sh '''
-                    kubectl get nodes
-                    kubectl get namespace ${KUBE_NAMESPACE} || kubectl create namespace ${KUBE_NAMESPACE}
-                    kubectl get pods -n ${KUBE_NAMESPACE}
-                    kubectl get svc -n ${KUBE_NAMESPACE}
+                    echo "Loading Docker image into Minikube..."
+                    minikube image load ${DOCKER_IMAGE}:${DOCKER_TAG}
+                    minikube image load ${DOCKER_IMAGE}:latest
+                    echo "Image loaded successfully"
                 '''
             }
         }
-
-        stage('📦 Deploy MySQL') {
+        
+        stage('Deploy MySQL') {
             steps {
-                echo "========== DEPLOY MYSQL =========="
+                echo '========== Deploying MySQL to Kubernetes =========='
                 sh '''
-                    kubectl apply -f ${PROJECT_DIR}/../mysql-deployment.yaml -n ${KUBE_NAMESPACE}
-                    kubectl rollout status deployment/mysql-deployment -n ${KUBE_NAMESPACE} --timeout=5m || true
+                    echo "Creating namespace..."
+                    kubectl create namespace ${KUBE_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+                    
+                    echo "Deploying MySQL..."
+                    kubectl apply -f mysql-deployment.yaml
+                    
+                    echo "Waiting for MySQL to be ready..."
+                    kubectl wait --for=condition=ready pod -l app=mysql -n ${KUBE_NAMESPACE} --timeout=300s || true
+                    
                     sleep 10
+                    echo "MySQL deployment status:"
+                    kubectl get pods -n ${KUBE_NAMESPACE} -l app=mysql
                 '''
             }
         }
-
-        stage('🚀 Deploy Spring Boot Application') {
+        
+        stage('Deploy Spring Boot') {
             steps {
-                echo "========== DEPLOY SPRING BOOT =========="
+                echo '========== Deploying Spring Boot application =========='
                 sh '''
-                    kubectl apply -f ${PROJECT_DIR}/../spring-deployment.yaml -n ${KUBE_NAMESPACE}
-                    kubectl set image deployment/${KUBE_DEPLOYMENT} \
-                        spring-app=${DOCKER_IMAGE}:${DOCKER_TAG} \
-                        -n ${KUBE_NAMESPACE} || true
-                    kubectl rollout status deployment/${KUBE_DEPLOYMENT} -n ${KUBE_NAMESPACE} --timeout=5m || true
+                    echo "Deploying Spring Boot application..."
+                    kubectl apply -f spring-deployment.yaml
+                    
+                    echo "Waiting for Spring Boot pods to be ready..."
+                    kubectl wait --for=condition=ready pod -l app=spring-boot-app -n ${KUBE_NAMESPACE} --timeout=300s || true
+                    
+                    sleep 10
+                    echo "Spring Boot deployment status:"
+                    kubectl get pods -n ${KUBE_NAMESPACE} -l app=spring-boot-app
                 '''
             }
         }
-
-        stage('🧪 Post-Deployment Tests') {
+        
+        stage('Verify Deployment') {
             steps {
-                echo "========== POST-DEPLOYMENT TESTS =========="
+                echo '========== Verifying deployment =========='
                 sh '''
-                    sleep 30
-                    kubectl get pods -n ${KUBE_NAMESPACE} -o wide
+                    echo "All pods in devops namespace:"
+                    kubectl get pods -n ${KUBE_NAMESPACE}
+                    
+                    echo -e "\nAll services in devops namespace:"
                     kubectl get svc -n ${KUBE_NAMESPACE}
-                    kubectl logs -n ${KUBE_NAMESPACE} -l app=spring-app --tail=50 || true
-                    kubectl run -it --rm mysql-test --image=mysql:8.0 --restart=Never \
-                        -n ${KUBE_NAMESPACE} -- \
-                        mysql -h mysql-service -u appuser -papppassword -D student_db -e "SELECT 1;" || true
-                '''
-            }
-        }
-
-        stage('📊 Deployment Report') {
-            steps {
-                echo "========== DEPLOYMENT REPORT =========="
-                sh '''
-                    echo ""
-                    echo "Deployment Summary"
-                    echo "Build: ${BUILD_NUMBER}, Docker Image: ${DOCKER_IMAGE}:${DOCKER_TAG}, Namespace: ${KUBE_NAMESPACE}"
-                    kubectl get pods,svc,pvc,configmap,secret -n ${KUBE_NAMESPACE}
-                    echo "Application URL: http://192.168.49.2:30080"
+                    
+                    echo -e "\nGetting service URL..."
+                    SERVICE_URL=$(minikube service spring-service -n ${KUBE_NAMESPACE} --url)
+                    echo "Spring Boot application URL: $SERVICE_URL"
                 '''
             }
         }
     }
-
+    
     post {
-        always {
-            echo "========== CLEANUP =========="
-            sh 'docker system prune -f --volumes || true'
-        }
-
         success {
-            echo "✅ Pipeline executed successfully!"
-            echo "Application deployed at: http://192.168.49.2:30080"
+            echo '========== Pipeline completed successfully =========='
+            sh '''
+                echo "Deployment Summary:"
+                echo "===================="
+                kubectl get all -n ${KUBE_NAMESPACE}
+                echo ""
+                echo "To access the application, run:"
+                echo "minikube service spring-service -n devops"
+            '''
         }
-
         failure {
-            echo "❌ Pipeline failed!"
+            echo '========== Pipeline failed =========='
+            sh '''
+                echo "Checking pod logs for errors..."
+                kubectl logs -n ${KUBE_NAMESPACE} -l app=spring-boot-app --tail=50 || true
+                kubectl logs -n ${KUBE_NAMESPACE} -l app=mysql --tail=50 || true
+            '''
         }
     }
 }
