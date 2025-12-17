@@ -2,28 +2,43 @@ pipeline {
     agent any
 
     tools {
-        jdk 'JAVA_HOME'       // Nom du JDK configuré dans Jenkins
-        maven 'M2_HOME'       // Nom de Maven configuré dans Jenkins
+        jdk 'JAVA_HOME'
+        maven 'M2_HOME'
     }
 
     environment {
         // Docker
         DOCKER_IMAGE = "spring-boot-app"
         DOCKER_TAG = "${BUILD_NUMBER}"
+        DOCKER_REGISTRY = "your-registry"  // Add your Docker registry
 
         // Kubernetes
         KUBE_NAMESPACE = "devops"
         KUBE_DEPLOYMENT = "spring-app"
+        KUBE_CONTEXT = "minikube"  // Specify Kubernetes context
 
-        // Projet
+        // Project
         PROJECT_DIR = "student-management"
+        
+        // SonarQube
+        SONAR_HOST_URL = credentials('sonar-host-url')
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 1, unit: 'HOURS')
+        timestamps()
     }
 
     stages {
         stage('📥 Checkout Code') {
             steps {
                 echo "========== CHECKOUT CODE =========="
-                git branch: 'main', url: 'https://github.com/shaymaesprit/DevopsShaymaSAE7.git'
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: '*/main']],
+                    userRemoteConfigs: [[url: 'https://github.com/shaymaesprit/DevopsShaymaSAE7.git']]
+                ])
                 sh 'ls -la'
             }
         }
@@ -32,7 +47,7 @@ pipeline {
             steps {
                 echo "========== BUILD MAVEN =========="
                 dir("${PROJECT_DIR}") {
-                    sh 'mvn clean package -DskipTests'
+                    sh 'mvn clean package -DskipTests -U'
                 }
             }
         }
@@ -41,16 +56,15 @@ pipeline {
             steps {
                 echo "========== SONARQUBE ANALYSIS =========="
                 dir("${PROJECT_DIR}") {
-                    // Utilisation du token secret Jenkins
                     withCredentials([string(credentialsId: 'sonar', variable: 'SONAR_TOKEN')]) {
-                        withSonarQubeEnv('sonar') { // Nom exact défini dans Jenkins
-                            sh """
+                        withSonarQubeEnv('sonar') {
+                            sh '''
                                 mvn sonar:sonar \
                                 -Dsonar.projectKey=student-management \
                                 -Dsonar.projectName=Student-Management \
-                                -Dsonar.host.url=${SONAR_HOST_URL} \
+                                -Dsonar.sources=src/main \
                                 -Dsonar.login=${SONAR_TOKEN}
-                            """
+                            '''
                         }
                     }
                 }
@@ -61,12 +75,14 @@ pipeline {
             steps {
                 echo "========== BUILD DOCKER IMAGE =========="
                 dir("${PROJECT_DIR}") {
-                    sh '''
-                        eval $(minikube docker-env)
-                        docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
-                        docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest
-                        docker images | grep ${DOCKER_IMAGE}
-                    '''
+                    script {
+                        sh '''
+                            eval $(minikube docker-env)
+                            docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+                            docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest
+                            docker images | grep ${DOCKER_IMAGE}
+                        '''
+                    }
                 }
             }
         }
@@ -75,10 +91,11 @@ pipeline {
             steps {
                 echo "========== VERIFY KUBERNETES ACCESS =========="
                 sh '''
+                    kubectl config use-context ${KUBE_CONTEXT} || true
+                    kubectl cluster-info
                     kubectl get nodes
                     kubectl get namespace ${KUBE_NAMESPACE} || kubectl create namespace ${KUBE_NAMESPACE}
                     kubectl get pods -n ${KUBE_NAMESPACE}
-                    kubectl get svc -n ${KUBE_NAMESPACE}
                 '''
             }
         }
@@ -87,9 +104,14 @@ pipeline {
             steps {
                 echo "========== DEPLOY MYSQL =========="
                 sh '''
-                    kubectl apply -f ${PROJECT_DIR}/../mysql-deployment.yaml -n ${KUBE_NAMESPACE}
-                    kubectl rollout status deployment/mysql-deployment -n ${KUBE_NAMESPACE} --timeout=5m || true
-                    sleep 10
+                    if [ -f "${PROJECT_DIR}/../mysql-deployment.yaml" ]; then
+                        kubectl apply -f ${PROJECT_DIR}/../mysql-deployment.yaml -n ${KUBE_NAMESPACE}
+                        kubectl rollout status deployment/mysql-deployment -n ${KUBE_NAMESPACE} --timeout=5m
+                        sleep 15
+                    else
+                        echo "Warning: mysql-deployment.yaml not found"
+                        exit 1
+                    fi
                 '''
             }
         }
@@ -98,11 +120,16 @@ pipeline {
             steps {
                 echo "========== DEPLOY SPRING BOOT =========="
                 sh '''
-                    kubectl apply -f ${PROJECT_DIR}/../spring-deployment.yaml -n ${KUBE_NAMESPACE}
-                    kubectl set image deployment/${KUBE_DEPLOYMENT} \
-                        spring-app=${DOCKER_IMAGE}:${DOCKER_TAG} \
-                        -n ${KUBE_NAMESPACE} || true
-                    kubectl rollout status deployment/${KUBE_DEPLOYMENT} -n ${KUBE_NAMESPACE} --timeout=5m || true
+                    if [ -f "${PROJECT_DIR}/../spring-deployment.yaml" ]; then
+                        kubectl apply -f ${PROJECT_DIR}/../spring-deployment.yaml -n ${KUBE_NAMESPACE}
+                        kubectl set image deployment/${KUBE_DEPLOYMENT} \
+                            spring-app=${DOCKER_IMAGE}:${DOCKER_TAG} \
+                            -n ${KUBE_NAMESPACE}
+                        kubectl rollout status deployment/${KUBE_DEPLOYMENT} -n ${KUBE_NAMESPACE} --timeout=5m
+                    else
+                        echo "Warning: spring-deployment.yaml not found"
+                        exit 1
+                    fi
                 '''
             }
         }
@@ -112,12 +139,19 @@ pipeline {
                 echo "========== POST-DEPLOYMENT TESTS =========="
                 sh '''
                     sleep 30
+                    echo "Pod Status:"
                     kubectl get pods -n ${KUBE_NAMESPACE} -o wide
+                    echo ""
+                    echo "Service Status:"
                     kubectl get svc -n ${KUBE_NAMESPACE}
-                    kubectl logs -n ${KUBE_NAMESPACE} -l app=spring-app --tail=50 || true
+                    echo ""
+                    echo "Application Logs:"
+                    kubectl logs -n ${KUBE_NAMESPACE} -l app=spring-app --tail=50 || echo "No logs available"
+                    echo ""
+                    echo "MySQL Connectivity Test:"
                     kubectl run -it --rm mysql-test --image=mysql:8.0 --restart=Never \
                         -n ${KUBE_NAMESPACE} -- \
-                        mysql -h mysql-service -u appuser -papppassword -D student_db -e "SELECT 1;" || true
+                        mysql -h mysql-service -u appuser -papppassword -D student_db -e "SELECT 1;" || echo "Database test failed"
                 '''
             }
         }
@@ -126,10 +160,17 @@ pipeline {
             steps {
                 echo "========== DEPLOYMENT REPORT =========="
                 sh '''
+                    echo "╔════════════════════════════════════════╗"
+                    echo "║      DEPLOYMENT SUMMARY                ║"
+                    echo "╚════════════════════════════════════════╝"
+                    echo "Build Number: ${BUILD_NUMBER}"
+                    echo "Docker Image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                    echo "Kubernetes Namespace: ${KUBE_NAMESPACE}"
+                    echo "Deployment Name: ${KUBE_DEPLOYMENT}"
                     echo ""
-                    echo "Deployment Summary"
-                    echo "Build: ${BUILD_NUMBER}, Docker Image: ${DOCKER_IMAGE}:${DOCKER_TAG}, Namespace: ${KUBE_NAMESPACE}"
+                    echo "Kubernetes Resources:"
                     kubectl get pods,svc,pvc,configmap,secret -n ${KUBE_NAMESPACE}
+                    echo ""
                     echo "Application URL: http://192.168.49.2:30080"
                 '''
             }
@@ -139,16 +180,25 @@ pipeline {
     post {
         always {
             echo "========== CLEANUP =========="
-            sh 'docker system prune -f --volumes || true'
+            sh 'docker system prune -f || true'
         }
 
         success {
             echo "✅ Pipeline executed successfully!"
-            echo "Application deployed at: http://192.168.49.2:30080"
+            echo "✅ Application deployed at: http://192.168.49.2:30080"
         }
 
         failure {
             echo "❌ Pipeline failed!"
+            sh '''
+                echo "Debug Information:"
+                kubectl get events -n ${KUBE_NAMESPACE} --sort-by='.lastTimestamp' | tail -20 || true
+                kubectl describe deployment ${KUBE_DEPLOYMENT} -n ${KUBE_NAMESPACE} || true
+            '''
+        }
+
+        unstable {
+            echo "⚠️ Pipeline is unstable"
         }
     }
 }
