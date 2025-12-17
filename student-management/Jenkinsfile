@@ -10,7 +10,6 @@ pipeline {
         // Docker
         DOCKER_IMAGE = "spring-boot-app"
         DOCKER_TAG = "${BUILD_NUMBER}"
-        DOCKER_REGISTRY = "your-registry"
 
         // Kubernetes
         KUBE_NAMESPACE = "devops"
@@ -20,7 +19,7 @@ pipeline {
         // Project
         PROJECT_DIR = "student-management"
         WORKSPACE_ROOT = "${WORKSPACE}"
-        
+
         // SonarQube
         SONAR_PROJECT_KEY = "student-management"
         SONAR_PROJECT_NAME = "Student-Management"
@@ -33,6 +32,7 @@ pipeline {
     }
 
     stages {
+
         stage('📥 Checkout Code') {
             steps {
                 echo "========== CHECKOUT CODE =========="
@@ -41,26 +41,20 @@ pipeline {
                     branches: [[name: '*/main']],
                     userRemoteConfigs: [[url: 'https://github.com/shaymaesprit/DevopsShaymaSAE7.git']]
                 ])
-                sh 'ls -la'
             }
         }
 
-        stage('🔍 Debug: Verify Files') {
+        stage('🔍 Verify Files') {
             steps {
-                echo "========== VERIFY REQUIRED FILES =========="
-                sh '''
-                    echo "Current Working Directory: $(pwd)"
-                    echo "Workspace: ${WORKSPACE}"
-                    echo ""
-                    echo "Checking for YAML files..."
-                    find . -name "*.yaml" -o -name "*.yml" | head -20
-                    echo ""
-                    echo "Project directory contents:"
-                    ls -la ${PROJECT_DIR}/ || echo "Project directory not found"
-                    echo ""
-                    echo "Root directory contents:"
-                    ls -la | grep -E "\.yaml|\.yml|deployment" || echo "No deployment files found"
-                '''
+                echo "========== VERIFY FILES =========="
+                sh """
+                    echo "Listing project directory: ${PROJECT_DIR}"
+                    ls -la ${PROJECT_DIR}/
+                    if [ ! -f "${PROJECT_DIR}/Dockerfile" ]; then
+                        echo "❌ Dockerfile not found!"
+                        exit 1
+                    fi
+                """
             }
         }
 
@@ -79,13 +73,13 @@ pipeline {
                 dir("${PROJECT_DIR}") {
                     withCredentials([string(credentialsId: 'sonar', variable: 'SONAR_TOKEN')]) {
                         withSonarQubeEnv('sonar') {
-                            sh '''
+                            sh """
                                 mvn sonar:sonar \
                                 -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                                 -Dsonar.projectName="${SONAR_PROJECT_NAME}" \
                                 -Dsonar.sources=src/main \
                                 -Dsonar.login=${SONAR_TOKEN}
-                            '''
+                            """
                         }
                     }
                 }
@@ -93,45 +87,36 @@ pipeline {
         }
 
         stage('🐳 Build Docker Image') {
-    steps {
-        echo "========== BUILD DOCKER IMAGE =========="
-        script {
-            sh """
-                minikube image build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ${PROJECT_DIR}/
-            """
+            steps {
+                echo "========== BUILD DOCKER IMAGE =========="
+                dir("${PROJECT_DIR}") {
+                    sh """
+                        minikube image build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+                        docker images | grep ${DOCKER_IMAGE} || true
+                    """
+                }
+            }
         }
-    }
-}
 
         stage('✅ Verify Kubernetes Access') {
             steps {
-                echo "========== VERIFY KUBERNETES ACCESS =========="
-                sh '''
+                echo "========== VERIFY KUBERNETES =========="
+                sh """
                     kubectl config use-context ${KUBE_CONTEXT} || true
                     kubectl cluster-info
                     kubectl get nodes
                     kubectl get namespace ${KUBE_NAMESPACE} || kubectl create namespace ${KUBE_NAMESPACE}
-                    kubectl get pods -n ${KUBE_NAMESPACE}
-                '''
+                """
             }
         }
 
         stage('📦 Deploy MySQL') {
             steps {
                 echo "========== DEPLOY MYSQL =========="
-                sh '''
-                    set -e
-                    
-                    # Try multiple possible paths
-                    MYSQL_YAML=""
-                    if [ -f "${WORKSPACE}/mysql-deployment.yaml" ]; then
-                        MYSQL_YAML="${WORKSPACE}/mysql-deployment.yaml"
-                    elif [ -f "${WORKSPACE}/../mysql-deployment.yaml" ]; then
-                        MYSQL_YAML="${WORKSPACE}/../mysql-deployment.yaml"
-                    elif [ -f "mysql-deployment.yaml" ]; then
-                        MYSQL_YAML="mysql-deployment.yaml"
-                    else
-                        echo "⚠️  mysql-deployment.yaml not found. Creating default..."
+                sh """
+                    MYSQL_YAML="${WORKSPACE}/mysql-deployment.yaml"
+                    if [ ! -f "$MYSQL_YAML" ]; then
+                        echo "Creating default MySQL deployment..."
                         cat > mysql-deployment.yaml <<'EOF'
 apiVersion: apps/v1
 kind: Deployment
@@ -184,35 +169,19 @@ spec:
 EOF
                         MYSQL_YAML="mysql-deployment.yaml"
                     fi
-                    
-                    echo "✅ Using MySQL YAML: $MYSQL_YAML"
                     kubectl apply -f $MYSQL_YAML -n ${KUBE_NAMESPACE}
-                    
-                    echo "Waiting for MySQL deployment to be ready..."
                     kubectl rollout status deployment/mysql-deployment -n ${KUBE_NAMESPACE} --timeout=5m || true
-                    
-                    echo "MySQL deployment successful!"
-                    sleep 15
-                '''
+                """
             }
         }
 
         stage('🚀 Deploy Spring Boot Application') {
             steps {
                 echo "========== DEPLOY SPRING BOOT =========="
-                sh '''
-                    set -e
-                    
-                    # Try multiple possible paths
-                    SPRING_YAML=""
-                    if [ -f "${WORKSPACE}/spring-deployment.yaml" ]; then
-                        SPRING_YAML="${WORKSPACE}/spring-deployment.yaml"
-                    elif [ -f "${WORKSPACE}/../spring-deployment.yaml" ]; then
-                        SPRING_YAML="${WORKSPACE}/../spring-deployment.yaml"
-                    elif [ -f "spring-deployment.yaml" ]; then
-                        SPRING_YAML="spring-deployment.yaml"
-                    else
-                        echo "⚠️  spring-deployment.yaml not found. Creating default..."
+                sh """
+                    SPRING_YAML="${WORKSPACE}/spring-deployment.yaml"
+                    if [ ! -f "$SPRING_YAML" ]; then
+                        echo "Creating default Spring Boot deployment..."
                         cat > spring-deployment.yaml <<'EOF'
 apiVersion: apps/v1
 kind: Deployment
@@ -233,7 +202,7 @@ spec:
       - name: spring-app
         image: ${DOCKER_IMAGE}:${DOCKER_TAG}
         ports:
-        - containerPort: 8080
+        - containerPort: 8081
         env:
         - name: SPRING_DATASOURCE_URL
           value: "jdbc:mysql://mysql-service:3306/student_db"
@@ -260,67 +229,40 @@ spec:
   selector:
     app: spring-app
   ports:
-  - port: 8080
-    targetPort: 8080
+  - port: 8081
+    targetPort: 8081
     nodePort: 30080
   type: NodePort
 EOF
                         SPRING_YAML="spring-deployment.yaml"
                     fi
-                    
-                    echo "✅ Using Spring YAML: $SPRING_YAML"
                     kubectl apply -f $SPRING_YAML -n ${KUBE_NAMESPACE}
-                    
-                    echo "Updating image to ${DOCKER_IMAGE}:${DOCKER_TAG}..."
-                    kubectl set image deployment/${KUBE_DEPLOYMENT} \
-                        spring-app=${DOCKER_IMAGE}:${DOCKER_TAG} \
-                        -n ${KUBE_NAMESPACE}
-                    
-                    echo "Waiting for Spring Boot deployment to be ready..."
+                    kubectl set image deployment/${KUBE_DEPLOYMENT} spring-app=${DOCKER_IMAGE}:${DOCKER_TAG} -n ${KUBE_NAMESPACE}
                     kubectl rollout status deployment/${KUBE_DEPLOYMENT} -n ${KUBE_NAMESPACE} --timeout=5m || true
-                    
-                    echo "Spring Boot deployment successful!"
-                '''
+                """
             }
         }
 
         stage('🧪 Post-Deployment Tests') {
             steps {
                 echo "========== POST-DEPLOYMENT TESTS =========="
-                sh '''
-                    sleep 30
-                    echo "Pod Status:"
+                sh """
+                    sleep 15
                     kubectl get pods -n ${KUBE_NAMESPACE} -o wide
-                    echo ""
-                    echo "Service Status:"
                     kubectl get svc -n ${KUBE_NAMESPACE}
-                    echo ""
-                    echo "Application Logs:"
-                    kubectl logs -n ${KUBE_NAMESPACE} -l app=spring-app --tail=50 || echo "No logs available"
-                    echo ""
-                    echo "MySQL Pod Logs:"
-                    kubectl logs -n ${KUBE_NAMESPACE} -l app=mysql --tail=50 || echo "No MySQL logs available"
-                '''
+                    kubectl logs -n ${KUBE_NAMESPACE} -l app=spring-app --tail=50 || echo "No Spring logs"
+                    kubectl logs -n ${KUBE_NAMESPACE} -l app=mysql --tail=50 || echo "No MySQL logs"
+                """
             }
         }
 
         stage('📊 Deployment Report') {
             steps {
                 echo "========== DEPLOYMENT REPORT =========="
-                sh '''
-                    echo "╔════════════════════════════════════════╗"
-                    echo "║      DEPLOYMENT SUMMARY                ║"
-                    echo "╚════════════════════════════════════════╝"
-                    echo "Build Number: ${BUILD_NUMBER}"
-                    echo "Docker Image: ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                    echo "Kubernetes Namespace: ${KUBE_NAMESPACE}"
-                    echo "Deployment Name: ${KUBE_DEPLOYMENT}"
-                    echo ""
-                    echo "Kubernetes Resources:"
-                    kubectl get pods,svc,deployment -n ${KUBE_NAMESPACE}
-                    echo ""
-                    echo "Application URL: http://192.168.49.2:30080"
-                '''
+                sh """
+                    MINIKUBE_IP=\$(minikube ip)
+                    echo "Application URL: http://\$MINIKUBE_IP:30080"
+                """
             }
         }
     }
@@ -334,21 +276,15 @@ EOF
 
         success {
             echo "✅ Pipeline executed successfully!"
-            echo "✅ Application deployed at: http://192.168.49.2:30080"
         }
 
         failure {
             echo "❌ Pipeline failed!"
-            sh '''
-                echo "Debug Information:"
+            sh """
                 kubectl get events -n ${KUBE_NAMESPACE} --sort-by='.lastTimestamp' | tail -20 || true
                 kubectl describe deployment ${KUBE_DEPLOYMENT} -n ${KUBE_NAMESPACE} || true
                 kubectl describe deployment mysql-deployment -n ${KUBE_NAMESPACE} || true
-            '''
-        }
-
-        unstable {
-            echo "⚠️ Pipeline is unstable"
+            """
         }
     }
 }
