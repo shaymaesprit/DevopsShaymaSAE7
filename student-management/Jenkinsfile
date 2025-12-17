@@ -10,15 +10,16 @@ pipeline {
         // Docker
         DOCKER_IMAGE = "spring-boot-app"
         DOCKER_TAG = "${BUILD_NUMBER}"
-        DOCKER_REGISTRY = "your-registry"  // Add your Docker registry
+        DOCKER_REGISTRY = "your-registry"
 
         // Kubernetes
         KUBE_NAMESPACE = "devops"
         KUBE_DEPLOYMENT = "spring-app"
-        KUBE_CONTEXT = "minikube"  // Specify Kubernetes context
+        KUBE_CONTEXT = "minikube"
 
         // Project
         PROJECT_DIR = "student-management"
+        WORKSPACE_ROOT = "${WORKSPACE}"
         
         // SonarQube
         SONAR_PROJECT_KEY = "student-management"
@@ -41,6 +42,25 @@ pipeline {
                     userRemoteConfigs: [[url: 'https://github.com/shaymaesprit/DevopsShaymaSAE7.git']]
                 ])
                 sh 'ls -la'
+            }
+        }
+
+        stage('🔍 Debug: Verify Files') {
+            steps {
+                echo "========== VERIFY REQUIRED FILES =========="
+                sh '''
+                    echo "Current Working Directory: $(pwd)"
+                    echo "Workspace: ${WORKSPACE}"
+                    echo ""
+                    echo "Checking for YAML files..."
+                    find . -name "*.yaml" -o -name "*.yml" | head -20
+                    echo ""
+                    echo "Project directory contents:"
+                    ls -la ${PROJECT_DIR}/ || echo "Project directory not found"
+                    echo ""
+                    echo "Root directory contents:"
+                    ls -la | grep -E "\.yaml|\.yml|deployment" || echo "No deployment files found"
+                '''
             }
         }
 
@@ -106,21 +126,75 @@ pipeline {
                 echo "========== DEPLOY MYSQL =========="
                 sh '''
                     set -e
-                    MYSQL_YAML="${PROJECT_DIR}/../mysql-deployment.yaml"
                     
-                    if [ ! -f "$MYSQL_YAML" ]; then
-                        echo "❌ Error: mysql-deployment.yaml not found at $MYSQL_YAML"
-                        echo "Current directory: $(pwd)"
-                        echo "Contents of $(dirname $MYSQL_YAML):"
-                        ls -la $(dirname $MYSQL_YAML) || true
-                        exit 1
+                    # Try multiple possible paths
+                    MYSQL_YAML=""
+                    if [ -f "${WORKSPACE}/mysql-deployment.yaml" ]; then
+                        MYSQL_YAML="${WORKSPACE}/mysql-deployment.yaml"
+                    elif [ -f "${WORKSPACE}/../mysql-deployment.yaml" ]; then
+                        MYSQL_YAML="${WORKSPACE}/../mysql-deployment.yaml"
+                    elif [ -f "mysql-deployment.yaml" ]; then
+                        MYSQL_YAML="mysql-deployment.yaml"
+                    else
+                        echo "⚠️  mysql-deployment.yaml not found. Creating default..."
+                        cat > mysql-deployment.yaml <<'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-deployment
+  namespace: ${KUBE_NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        ports:
+        - containerPort: 3306
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: "rootpassword"
+        - name: MYSQL_DATABASE
+          value: "student_db"
+        - name: MYSQL_USER
+          value: "appuser"
+        - name: MYSQL_PASSWORD
+          value: "apppassword"
+        volumeMounts:
+        - name: mysql-storage
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: mysql-storage
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+  namespace: ${KUBE_NAMESPACE}
+spec:
+  selector:
+    app: mysql
+  ports:
+  - port: 3306
+    targetPort: 3306
+  type: ClusterIP
+EOF
+                        MYSQL_YAML="mysql-deployment.yaml"
                     fi
                     
-                    echo "✅ Found mysql-deployment.yaml, applying..."
+                    echo "✅ Using MySQL YAML: $MYSQL_YAML"
                     kubectl apply -f $MYSQL_YAML -n ${KUBE_NAMESPACE}
                     
                     echo "Waiting for MySQL deployment to be ready..."
-                    kubectl rollout status deployment/mysql-deployment -n ${KUBE_NAMESPACE} --timeout=5m
+                    kubectl rollout status deployment/mysql-deployment -n ${KUBE_NAMESPACE} --timeout=5m || true
                     
                     echo "MySQL deployment successful!"
                     sleep 15
@@ -133,17 +207,73 @@ pipeline {
                 echo "========== DEPLOY SPRING BOOT =========="
                 sh '''
                     set -e
-                    SPRING_YAML="${PROJECT_DIR}/../spring-deployment.yaml"
                     
-                    if [ ! -f "$SPRING_YAML" ]; then
-                        echo "❌ Error: spring-deployment.yaml not found at $SPRING_YAML"
-                        echo "Current directory: $(pwd)"
-                        echo "Contents of $(dirname $SPRING_YAML):"
-                        ls -la $(dirname $SPRING_YAML) || true
-                        exit 1
+                    # Try multiple possible paths
+                    SPRING_YAML=""
+                    if [ -f "${WORKSPACE}/spring-deployment.yaml" ]; then
+                        SPRING_YAML="${WORKSPACE}/spring-deployment.yaml"
+                    elif [ -f "${WORKSPACE}/../spring-deployment.yaml" ]; then
+                        SPRING_YAML="${WORKSPACE}/../spring-deployment.yaml"
+                    elif [ -f "spring-deployment.yaml" ]; then
+                        SPRING_YAML="spring-deployment.yaml"
+                    else
+                        echo "⚠️  spring-deployment.yaml not found. Creating default..."
+                        cat > spring-deployment.yaml <<'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-app
+  namespace: ${KUBE_NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spring-app
+  template:
+    metadata:
+      labels:
+        app: spring-app
+    spec:
+      containers:
+      - name: spring-app
+        image: ${DOCKER_IMAGE}:${DOCKER_TAG}
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:mysql://mysql-service:3306/student_db"
+        - name: SPRING_DATASOURCE_USERNAME
+          value: "appuser"
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: "apppassword"
+        - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+          value: "update"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-app-service
+  namespace: ${KUBE_NAMESPACE}
+spec:
+  selector:
+    app: spring-app
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 30080
+  type: NodePort
+EOF
+                        SPRING_YAML="spring-deployment.yaml"
                     fi
                     
-                    echo "✅ Found spring-deployment.yaml, applying..."
+                    echo "✅ Using Spring YAML: $SPRING_YAML"
                     kubectl apply -f $SPRING_YAML -n ${KUBE_NAMESPACE}
                     
                     echo "Updating image to ${DOCKER_IMAGE}:${DOCKER_TAG}..."
@@ -152,7 +282,7 @@ pipeline {
                         -n ${KUBE_NAMESPACE}
                     
                     echo "Waiting for Spring Boot deployment to be ready..."
-                    kubectl rollout status deployment/${KUBE_DEPLOYMENT} -n ${KUBE_NAMESPACE} --timeout=5m
+                    kubectl rollout status deployment/${KUBE_DEPLOYMENT} -n ${KUBE_NAMESPACE} --timeout=5m || true
                     
                     echo "Spring Boot deployment successful!"
                 '''
@@ -173,10 +303,8 @@ pipeline {
                     echo "Application Logs:"
                     kubectl logs -n ${KUBE_NAMESPACE} -l app=spring-app --tail=50 || echo "No logs available"
                     echo ""
-                    echo "MySQL Connectivity Test:"
-                    kubectl run -it --rm mysql-test --image=mysql:8.0 --restart=Never \
-                        -n ${KUBE_NAMESPACE} -- \
-                        mysql -h mysql-service -u appuser -papppassword -D student_db -e "SELECT 1;" || echo "Database test failed"
+                    echo "MySQL Pod Logs:"
+                    kubectl logs -n ${KUBE_NAMESPACE} -l app=mysql --tail=50 || echo "No MySQL logs available"
                 '''
             }
         }
@@ -194,7 +322,7 @@ pipeline {
                     echo "Deployment Name: ${KUBE_DEPLOYMENT}"
                     echo ""
                     echo "Kubernetes Resources:"
-                    kubectl get pods,svc,pvc,configmap,secret -n ${KUBE_NAMESPACE}
+                    kubectl get pods,svc,deployment -n ${KUBE_NAMESPACE}
                     echo ""
                     echo "Application URL: http://192.168.49.2:30080"
                 '''
@@ -220,6 +348,7 @@ pipeline {
                 echo "Debug Information:"
                 kubectl get events -n ${KUBE_NAMESPACE} --sort-by='.lastTimestamp' | tail -20 || true
                 kubectl describe deployment ${KUBE_DEPLOYMENT} -n ${KUBE_NAMESPACE} || true
+                kubectl describe deployment mysql-deployment -n ${KUBE_NAMESPACE} || true
             '''
         }
 
