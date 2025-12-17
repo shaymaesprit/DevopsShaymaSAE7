@@ -16,9 +16,10 @@ spec:
     storage: 5Gi
   accessModes:
     - ReadWriteOnce
-  storageClassName: standard
+  storageClassName: standard  # ← minuscule
   hostPath:
     path: /data/mysql
+    type: DirectoryOrCreate  # ← Important pour créer le dossier s'il n'existe pas
 
 ---
 # PersistentVolumeClaim
@@ -30,7 +31,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: standard
+  storageClassName: standard  # ← minuscule
   resources:
     requests:
       storage: 5Gi
@@ -44,9 +45,7 @@ metadata:
   namespace: devops
 type: Opaque
 stringData:
-  mysql-root-password: root
-  mysql-user: devops
-  mysql-password: devops123
+  mysql-root-password: root123  # ← Recommandé: mot de passe plus fort
 
 ---
 # MySQL ConfigMap (initialization SQL)
@@ -65,6 +64,10 @@ data:
       email VARCHAR(100),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+    -- Créer un utilisateur spécifique pour l'application
+    CREATE USER IF NOT EXISTS 'devops'@'%' IDENTIFIED BY 'devops123';
+    GRANT ALL PRIVILEGES ON student_db.* TO 'devops'@'%';
+    FLUSH PRIVILEGES;
 
 ---
 # MySQL Deployment
@@ -94,16 +97,6 @@ spec:
             secretKeyRef:
               name: mysql-secret
               key: mysql-root-password
-        - name: MYSQL_USER
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: mysql-user
-        - name: MYSQL_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: mysql-password
         - name: MYSQL_DATABASE
           value: student_db
         volumeMounts:
@@ -118,6 +111,16 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
+        livenessProbe:  # ← Ajout: Vérifier si MySQL est en vie
+          exec:
+            command: ["mysqladmin", "ping", "-h", "localhost"]
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:  # ← Ajout: Vérifier si MySQL est prêt
+          exec:
+            command: ["mysql", "-uroot", "-p${MYSQL_ROOT_PASSWORD}", "-e", "SELECT 1"]
+          initialDelaySeconds: 5
+          periodSeconds: 5
       volumes:
       - name: mysql-storage
         persistentVolumeClaim:
