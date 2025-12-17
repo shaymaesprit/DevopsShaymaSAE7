@@ -21,7 +21,8 @@ pipeline {
         PROJECT_DIR = "student-management"
         
         // SonarQube
-        SONAR_HOST_URL = credentials('sonar-host-url')
+        SONAR_PROJECT_KEY = "student-management"
+        SONAR_PROJECT_NAME = "Student-Management"
     }
 
     options {
@@ -60,8 +61,8 @@ pipeline {
                         withSonarQubeEnv('sonar') {
                             sh '''
                                 mvn sonar:sonar \
-                                -Dsonar.projectKey=student-management \
-                                -Dsonar.projectName=Student-Management \
+                                -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                -Dsonar.projectName="${SONAR_PROJECT_NAME}" \
                                 -Dsonar.sources=src/main \
                                 -Dsonar.login=${SONAR_TOKEN}
                             '''
