@@ -180,34 +180,27 @@ pipeline {
 
     post {
         always {
-            node {
-                echo "========== CLEANUP =========="
-                sh 'docker system prune -f || true'
-            }
+            cleanWs()
+            echo "========== CLEANUP =========="
+            sh 'docker system prune -f || true'
         }
 
         success {
-            node {
-                echo "✅ Pipeline executed successfully!"
-                echo "✅ Application deployed at: http://192.168.49.2:30080"
-            }
+            echo "✅ Pipeline executed successfully!"
+            echo "✅ Application deployed at: http://192.168.49.2:30080"
         }
 
         failure {
-            node {
-                echo "❌ Pipeline failed!"
-                sh '''
-                    echo "Debug Information:"
-                    kubectl get events -n ${KUBE_NAMESPACE} --sort-by='.lastTimestamp' | tail -20 || true
-                    kubectl describe deployment ${KUBE_DEPLOYMENT} -n ${KUBE_NAMESPACE} || true
-                '''
-            }
+            echo "❌ Pipeline failed!"
+            sh '''
+                echo "Debug Information:"
+                kubectl get events -n ${KUBE_NAMESPACE} --sort-by='.lastTimestamp' | tail -20 || true
+                kubectl describe deployment ${KUBE_DEPLOYMENT} -n ${KUBE_NAMESPACE} || true
+            '''
         }
 
         unstable {
-            node {
-                echo "⚠️ Pipeline is unstable"
-            }
+            echo "⚠️ Pipeline is unstable"
         }
     }
 }
