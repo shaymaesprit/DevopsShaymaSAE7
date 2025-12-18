@@ -1,628 +1,73 @@
----
-# ============================================================
-# SPRING BOOT APPLICATION - COMPLETE DEPLOYMENT
-# All resources in single file: spring-deployment.yaml
-# ============================================================
-
-# 1. NAMESPACE
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: devops
-  labels:
-    name: devops
-
----
-# 2. CONFIGMAP - Application Configuration
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: spring-config
   namespace: devops
-  labels:
-    app: spring-app
-    version: v1
 data:
   application.properties: |
-    server.port=8080
-    
-    # Database Configuration
-    spring.datasource.url=jdbc:mysql://mysql-service:3306/devops_db
-    spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
-    spring.datasource.username=${DB_USER:appuser}
-    spring.datasource.password=${DB_PASSWORD:apppass123}
-    
-    # JPA/Hibernate Configuration
+    spring.datasource.url=jdbc:mysql://mysql-service:3306/student_db
+    spring.datasource.username=student_user
+    spring.datasource.password=student@123
     spring.jpa.hibernate.ddl-auto=update
     spring.jpa.show-sql=false
-    spring.jpa.database-platform=org.hibernate.dialect.MySQL5InnoDBDialect
-    spring.jpa.properties.hibernate.format_sql=true
-    
-    # Actuator/Health Endpoints
-    management.endpoints.web.exposure.include=health,info,metrics,prometheus
-    management.endpoint.health.show-details=always
-    management.health.livenessState.enabled=true
-    management.health.readinessState.enabled=true
-    
-    # Logging Configuration
-    logging.level.root=INFO
-    logging.level.com.myapp=DEBUG
-    logging.level.org.springframework.web=INFO
-    logging.level.org.hibernate.SQL=DEBUG
+    spring.application.name=student-management
 
 ---
-# 3. SECRET - Sensitive Data
-apiVersion: v1
-kind: Secret
-metadata:
-  name: spring-secret
-  namespace: devops
-  labels:
-    app: spring-app
-type: Opaque
-stringData:
-  db-username: "appuser"
-  db-password: "apppass123"
-  db-root-password: "root123"
-  api-key: "secret-api-key-12345"
-
----
-# 4. SERVICEACCOUNT
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: spring-app
-  namespace: devops
-  labels:
-    app: spring-app
-
----
-# 5. ROLE - Define Permissions
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: spring-app
-  namespace: devops
-spec:
-  rules:
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["get", "list"]
-
----
-# 6. ROLEBINDING - Bind Role to ServiceAccount
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: spring-app
-  namespace: devops
-spec:
-  roleRef:
-    apiGroup: rbac.authorization.k8s.io
-    kind: Role
-    name: spring-app
-  subjects:
-  - kind: ServiceAccount
-    name: spring-app
-    namespace: devops
-
----
-# 7. DEPLOYMENT - Spring Boot Application
+# Spring Boot Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: spring-app
+  name: student-management
   namespace: devops
-  labels:
-    app: spring-app
-    version: v1
 spec:
   replicas: 2
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
   selector:
     matchLabels:
-      app: spring-app
+      app: student-management
   template:
     metadata:
       labels:
-        app: spring-app
-        version: v1
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
-        prometheus.io/path: "/actuator/prometheus"
+        app: student-management
     spec:
-      serviceAccountName: spring-app
-      
-      # Init containers to wait for dependencies
-      initContainers:
-      - name: wait-for-mysql
-        image: busybox:1.28
-        command: ['sh', '-c', "until nc -z mysql-service 3306; do echo waiting for MySQL; sleep 2; done"]
-      
       containers:
-      - name: spring-app
-        image: myapp/spring-boot-app:latest
-        imagePullPolicy: IfNotPresent
-        
+      - name: student-management
+        image: student-management:latest
+        imagePullPolicy: Never
         ports:
-        - name: http
-          containerPort: 8080
-          protocol: TCP
-        
-        # Environment Variables from ConfigMap and Secret
+        - containerPort: 8080
         env:
-        # Database credentials
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:mysql://mysql-service:3306/student_db"
         - name: SPRING_DATASOURCE_USERNAME
           valueFrom:
             secretKeyRef:
-              name: spring-secret
-              key: db-username
+              name: mysql-secret
+              key: db-user
         - name: SPRING_DATASOURCE_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: spring-secret
+              name: mysql-secret
               key: db-password
-        - name: DB_USER
-          valueFrom:
-            secretKeyRef:
-              name: spring-secret
-              key: db-username
-        - name: DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: spring-secret
-              key: db-password
-        
-        # Java Options
-        - name: JAVA_OPTS
-          value: "-Xmx512m -Xms256m -XX:+UseG1GC"
-        
-        # Spring Profiles
-        - name: SPRING_PROFILES_ACTIVE
-          value: "kubernetes,prod"
-        
-        # Application Name
-        - name: APP_NAME
-          value: "spring-boot-app"
-        
-        # Timezone
-        - name: TZ
-          value: "UTC"
-        
-        # Volume Mounts
         volumeMounts:
         - name: config
-          mountPath: /etc/config
-          readOnly: true
-        - name: logs
-          mountPath: /var/log/app
-        - name: tmp
-          mountPath: /tmp
-        
-        # Resource Management
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-        
-        # Liveness Probe - Restart if unhealthy
-        livenessProbe:
-          httpGet:
-            path: /actuator/health/liveness
-            port: http
-            scheme: HTTP
-          initialDelaySeconds: 40
-          periodSeconds: 10
-          timeoutSeconds: 5
-          successThreshold: 1
-          failureThreshold: 3
-        
-        # Readiness Probe - Accept traffic when ready
-        readinessProbe:
-          httpGet:
-            path: /actuator/health/readiness
-            port: http
-            scheme: HTTP
-          initialDelaySeconds: 30
-          periodSeconds: 5
-          timeoutSeconds: 3
-          successThreshold: 1
-          failureThreshold: 2
-        
-        # Startup Probe - For slow starting apps
-        startupProbe:
-          httpGet:
-            path: /actuator/health
-            port: http
-            scheme: HTTP
-          initialDelaySeconds: 0
-          periodSeconds: 10
-          timeoutSeconds: 3
-          successThreshold: 1
-          failureThreshold: 30
-        
-        # Security Context for Container
-        securityContext:
-          runAsNonRoot: true
-          runAsUser: 1000
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: false
-          capabilities:
-            drop:
-            - ALL
-            add:
-            - NET_BIND_SERVICE
-        
-        # Lifecycle Hooks
-        lifecycle:
-          preStop:
-            exec:
-              command: ["/bin/sh", "-c", "sleep 15"]
-      
-      # Pod-level Security Context
-      securityContext:
-        fsGroup: 1000
-        runAsNonRoot: true
-      
-      # Volumes
+          mountPath: /config
       volumes:
       - name: config
         configMap:
           name: spring-config
-      - name: logs
-        emptyDir: {}
-      - name: tmp
-        emptyDir: {}
-      
-      # Affinity - Spread pods across nodes
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchExpressions:
-                - key: app
-                  operator: In
-                  values:
-                  - spring-app
-              topologyKey: kubernetes.io/hostname
-      
-      # Node Selection
-      nodeSelector:
-        kubernetes.io/os: linux
-      
-      # Termination Grace Period
-      terminationGracePeriodSeconds: 30
-      
-      # DNS Policy
-      dnsPolicy: ClusterFirst
-      
-      # Restart Policy
-      restartPolicy: Always
 
 ---
-# 8. SERVICE - ClusterIP (Internal Communication)
+# Spring Boot Service (NodePort)
 apiVersion: v1
 kind: Service
 metadata:
-  name: spring-app
+  name: student-service
   namespace: devops
-  labels:
-    app: spring-app
-  annotations:
-    description: "Spring Boot Application Service (ClusterIP)"
-spec:
-  type: ClusterIP
-  selector:
-    app: spring-app
-  ports:
-  - name: http
-    port: 8080
-    targetPort: 8080
-    protocol: TCP
-  sessionAffinity: None
-
----
-# 9. SERVICE - NodePort (External Access for Development)
-apiVersion: v1
-kind: Service
-metadata:
-  name: spring-app-nodeport
-  namespace: devops
-  labels:
-    app: spring-app
-    type: nodeport
-  annotations:
-    description: "Spring Boot Application Service (NodePort)"
 spec:
   type: NodePort
-  selector:
-    app: spring-app
   ports:
-  - name: http
-    port: 8080
+  - port: 8080
     targetPort: 8080
     nodePort: 30080
-    protocol: TCP
-
----
-# 10. SERVICE - LoadBalancer (For production-like environments)
-apiVersion: v1
-kind: Service
-metadata:
-  name: spring-app-lb
-  namespace: devops
-  labels:
-    app: spring-app
-    type: loadbalancer
-  annotations:
-    description: "Spring Boot Application Service (LoadBalancer)"
-spec:
-  type: LoadBalancer
   selector:
-    app: spring-app
-  ports:
-  - name: http
-    port: 80
-    targetPort: 8080
-    protocol: TCP
-
----
-# 11. HORIZONTAL POD AUTOSCALER - Auto-scale based on CPU
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: spring-app-hpa
-  namespace: devops
-  labels:
-    app: spring-app
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: spring-app
-  minReplicas: 2
-  maxReplicas: 5
-  metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 70
-  - type: Resource
-    resource:
-      name: memory
-      target:
-        type: Utilization
-        averageUtilization: 80
-  behavior:
-    scaleDown:
-      stabilizationWindowSeconds: 300
-      policies:
-      - type: Percent
-        value: 50
-        periodSeconds: 60
-    scaleUp:
-      stabilizationWindowSeconds: 0
-      policies:
-      - type: Percent
-        value: 100
-        periodSeconds: 30
-      - type: Pods
-        value: 2
-        periodSeconds: 60
-      selectPolicy: Max
-
----
-# 12. INGRESS - HTTP Routing
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: spring-app-ingress
-  namespace: devops
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
-    nginx.ingress.kubernetes.io/rate-limit: "100"
-  labels:
-    app: spring-app
-spec:
-  ingressClassName: nginx
-  rules:
-  - host: spring-app.local
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: spring-app
-            port:
-              number: 8080
-  - host: localhost
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: spring-app
-            port:
-              number: 8080
-
----
-# 13. NETWORK POLICY - Restrict traffic
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: spring-app-netpol
-  namespace: devops
-spec:
-  podSelector:
-    matchLabels:
-      app: spring-app
-  policyTypes:
-  - Ingress
-  - Egress
-  ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          app: mysql-deployment
-    - namespaceSelector:
-        matchLabels:
-          name: devops
-    ports:
-    - protocol: TCP
-      port: 8080
-  egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          app: mysql-deployment
-    ports:
-    - protocol: TCP
-      port: 3306
-  - to:
-    - namespaceSelector: {}
-    ports:
-    - protocol: TCP
-      port: 53
-    - protocol: UDP
-      port: 53
-
----
-# 14. POD DISRUPTION BUDGET - High Availability
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: spring-app-pdb
-  namespace: devops
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: spring-app
-
----
-# 15. TESTING POD - For manual testing
-apiVersion: v1
-kind: Pod
-metadata:
-  name: spring-app-test-pod
-  namespace: devops
-  labels:
-    app: spring-app-test
-spec:
-  containers:
-  - name: test-container
-    image: busybox:latest
-    command: ['sh', '-c', 'echo "Ready for testing" && sleep 3600']
-  restartPolicy: Never
-
----
-# 16. JOB - Database Migration (Optional)
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: spring-app-db-migration
-  namespace: devops
-spec:
-  ttlSecondsAfterFinished: 3600
-  backoffLimit: 3
-  template:
-    spec:
-      serviceAccountName: spring-app
-      containers:
-      - name: migration
-        image: myapp/spring-boot-app:latest
-        command: ["java"]
-        args: 
-        - "-jar"
-        - "app.jar"
-        - "--spring.liquibase.enabled=true"
-        env:
-        - name: SPRING_DATASOURCE_USERNAME
-          valueFrom:
-            secretKeyRef:
-              name: spring-secret
-              key: db-username
-        - name: SPRING_DATASOURCE_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: spring-secret
-              key: db-password
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-      restartPolicy: Never
-
----
-# 17. RESOURCE QUOTA - Limit namespace resources
-apiVersion: v1
-kind: ResourceQuota
-metadata:
-  name: spring-app-quota
-  namespace: devops
-spec:
-  hard:
-    requests.cpu: "10"
-    requests.memory: "20Gi"
-    limits.cpu: "20"
-    limits.memory: "40Gi"
-    pods: "50"
-    services: "10"
-    deployments.apps: "10"
-
----
-# 18. LIMIT RANGE - Default resource limits for pods
-apiVersion: v1
-kind: LimitRange
-metadata:
-  name: spring-app-limits
-  namespace: devops
-spec:
-  limits:
-  - max:
-      cpu: "2"
-      memory: "2Gi"
-    min:
-      cpu: "100m"
-      memory: "128Mi"
-    default:
-      cpu: "500m"
-      memory: "512Mi"
-    defaultRequest:
-      cpu: "250m"
-      memory: "256Mi"
-    type: Container
-  - max:
-      cpu: "4"
-      memory: "4Gi"
-    min:
-      cpu: "100m"
-      memory: "128Mi"
-    type: Pod
+    app: student-management
