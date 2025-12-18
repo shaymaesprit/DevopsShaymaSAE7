@@ -1,105 +1,55 @@
-# PersistentVolume
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: mysql-pv
-spec:
-  capacity:
-    storage: 5Gi
-  accessModes:
-    - ReadWriteOnce
-  hostPath:
-    path: "/data/mysql"
-
----
-# PersistentVolumeClaim
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: mysql-pvc
-  namespace: devops
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 5Gi
-
----
-# MySQL Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mysql
+  name: student-management
   namespace: devops
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
-      app: mysql
+      app: student-management
   template:
     metadata:
       labels:
-        app: mysql
+        app: student-management
     spec:
       containers:
-      - name: mysql
-        image: mysql:8.0
+      - name: student-management
+        image: student-management:latest
+        imagePullPolicy: Never
         ports:
-        - containerPort: 3306
+        - containerPort: 8089
         env:
-        - name: MYSQL_ROOT_PASSWORD
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:mysql://mysql-service:3306/student_db"
+        - name: SPRING_DATASOURCE_USERNAME
           valueFrom:
             secretKeyRef:
               name: mysql-secret
-              key: root-password
-        - name: MYSQL_DATABASE
+              key: db-user
+        - name: SPRING_DATASOURCE_PASSWORD
           valueFrom:
-            configMapKeyRef:
-              name: mysql-config
-              key: database-name
+            secretKeyRef:
+              name: mysql-secret
+              key: db-password
+        - name: SERVER_PORT
+          value: "8089"
         volumeMounts:
-        - name: mysql-storage
-          mountPath: /var/lib/mysql
+        - name: config
+          mountPath: /config
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8089
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8089
+          initialDelaySeconds: 20
+          periodSeconds: 5
       volumes:
-      - name: mysql-storage
-        persistentVolumeClaim:
-          claimName: mysql-pvc
-
----
-# MySQL Service (ClusterIP)
-apiVersion: v1
-kind: Service
-metadata:
-  name: mysql-service
-  namespace: devops
-spec:
-  type: ClusterIP
-  ports:
-  - port: 3306
-    targetPort: 3306
-  selector:
-    app: mysql
-
----
-# ConfigMap for MySQL config
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: mysql-config
-  namespace: devops
-data:
-  database-name: "student_db"
-
----
-# Secret for MySQL credentials
-apiVersion: v1
-kind: Secret
-metadata:
-  name: mysql-secret
-  namespace: devops
-type: Opaque
-stringData:
-  root-password: "root@123"
-  db-user: "student_user"
-  db-password: "student@123"
+      - name: config
+        configMap:
+          name: spring-config
