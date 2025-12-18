@@ -50,8 +50,8 @@ pipeline {
                     kubectl rollout status deployment/spring-app -n devops
                 """
             }
+        }
     }
-
     post {
         success {
             echo "✅ Déploiement réussi!"
