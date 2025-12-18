@@ -9,8 +9,6 @@ pipeline {
     environment {
         PROJECT_DIR = "student-management"
         KUBE_NAMESPACE = "devops"
-        KUBE_CONTEXT = "minikube"
-
         DOCKER_IMAGE = "student-management"
         DOCKER_TAG = "latest"
     }
@@ -31,22 +29,41 @@ pipeline {
             }
         }
 
+        stage('🔍 Verify Minikube') {
+            steps {
+                sh """
+                    echo "Checking Minikube status..."
+                    minikube status || (echo "Minikube not running!" && exit 1)
+                    
+                    echo "Verifying kubectl connection..."
+                    kubectl config use-context minikube
+                    kubectl cluster-info
+                    kubectl get nodes
+                """
+            }
+        }
+
         stage('🐳 Build Docker Image (Minikube)') {
             steps {
                 dir("${PROJECT_DIR}") {
                     sh """
-                        eval \$(minikube docker-env)
+                        echo "Configuring Docker to use Minikube daemon..."
+                        eval \$(minikube docker-env --shell bash)
+                        
+                        echo "Building Docker image..."
                         docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+                        
+                        echo "Verifying image was built..."
                         docker images | grep ${DOCKER_IMAGE}
                     """
                 }
             }
         }
 
-
         stage('📦 Deploy Kubernetes Resources') {
             steps {
                 sh """
+                    echo "Deploying to namespace: ${KUBE_NAMESPACE}"
                     kubectl apply -f k8s/ -n ${KUBE_NAMESPACE}
                 """
             }
@@ -64,7 +81,10 @@ pipeline {
         stage('🧪 Verify Deployment') {
             steps {
                 sh """
+                    echo "Pods in namespace ${KUBE_NAMESPACE}:"
                     kubectl get pods -n ${KUBE_NAMESPACE}
+                    
+                    echo "Services in namespace ${KUBE_NAMESPACE}:"
                     kubectl get svc -n ${KUBE_NAMESPACE}
                 """
             }
@@ -72,23 +92,29 @@ pipeline {
 
         stage('🌐 Application URL') {
             steps {
-                sh """
-                    MINIKUBE_IP=\$(minikube ip)
-                    echo "Application URL: http://\$MINIKUBE_IP:30089"
-                """
+                script {
+                    def minikubeIp = sh(script: 'minikube ip', returnStdout: true).trim()
+                    echo "✅ Application URL: http://${minikubeIp}: 30089"
+                }
             }
         }
     }
 
     post {
         success {
-            echo "✅ Déploiement réussi"
+            echo "✅ Déploiement réussi!"
         }
         failure {
             echo "❌ Échec du déploiement"
             sh """
-                kubectl describe pods -n ${KUBE_NAMESPACE}
-                kubectl get events -n ${KUBE_NAMESPACE}
+                echo "=== Pod Details ==="
+                kubectl describe pods -n ${KUBE_NAMESPACE} || echo "Cannot connect to cluster"
+                
+                echo "=== Recent Events ==="
+                kubectl get events -n ${KUBE_NAMESPACE} --sort-by='. lastTimestamp' || echo "Cannot get events"
+                
+                echo "=== Minikube Status ==="
+                minikube status || echo "Minikube not accessible"
             """
         }
         always {
