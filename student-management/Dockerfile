@@ -1,4 +1,6 @@
-FROM openjdk:17-jdk-slim
+FROM alpine
+
+RUN apk add openjdk17
 
 WORKDIR /app
 
