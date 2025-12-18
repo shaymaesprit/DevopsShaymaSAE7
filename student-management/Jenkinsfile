@@ -7,96 +7,89 @@ pipeline {
     }
 
     environment {
-        DOCKER_IMAGE = "student-management:latest"
+        PROJECT_DIR = "student-management"
         KUBE_NAMESPACE = "devops"
         KUBE_CONTEXT = "minikube"
+
+        DOCKER_IMAGE = "student-management"
+        DOCKER_TAG = "latest"
     }
 
     stages {
 
-        stage('Checkout') {
+        stage('📥 Checkout Code') {
             steps {
-                echo 'Clonage du repository Git...'
-                git branch: 'main',
-                    url: 'https://github.com/shaymaesprit/DevopsShaymaSAE7.git'
+                checkout scm
             }
         }
 
-        stage('Build Maven') {
+        stage('🏗️ Build Maven') {
             steps {
-                echo 'Build Maven du projet...'
-                dir('student-management') {
+                dir("${PROJECT_DIR}") {
                     sh 'mvn clean package -DskipTests'
                 }
             }
         }
 
-        stage('SonarQube') {
+        stage('🐳 Build Docker Image (Minikube)') {
             steps {
-                dir('student-management') {
-                    withSonarQubeEnv('sonar') {
-                        sh 'mvn sonar:sonar'
-                    }
+                dir("${PROJECT_DIR}") {
+                    sh """
+                        eval \$(minikube docker-env)
+                        docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+                        docker images | grep ${DOCKER_IMAGE}
+                    """
                 }
             }
         }
 
-        stage('Build Docker Image (Minikube)') {
+
+        stage('📦 Deploy Kubernetes Resources') {
             steps {
-                dir('student-management') {
-                    sh '''
-                        eval $(minikube docker-env)
-                        docker build -t student-management:latest .
-                        docker images | grep student-management
-                    '''
-                }
+                sh """
+                    kubectl apply -f k8s/ -n ${KUBE_NAMESPACE}
+                """
             }
         }
 
-        stage('Deploy to Kubernetes') {
+        stage('🔄 Restart Spring Deployment') {
             steps {
-                echo 'Déploiement sur Kubernetes...'
-                sh '''
-                    kubectl config use-context minikube
-                    kubectl get ns devops || kubectl create ns devops
-
-                    kubectl apply -f k8s/ -n devops
-
-                    kubectl rollout restart deployment/student-management -n devops
-                    kubectl rollout status deployment/student-management -n devops
-                '''
+                sh """
+                    kubectl rollout restart deployment/student-management -n ${KUBE_NAMESPACE}
+                    kubectl rollout status deployment/student-management -n ${KUBE_NAMESPACE} --timeout=5m
+                """
             }
         }
 
-        stage('Verify Deployment') {
+        stage('🧪 Verify Deployment') {
             steps {
-                sh '''
-                    kubectl get pods -n devops
-                    kubectl get svc -n devops
-                '''
+                sh """
+                    kubectl get pods -n ${KUBE_NAMESPACE}
+                    kubectl get svc -n ${KUBE_NAMESPACE}
+                """
             }
         }
 
-        stage('Application URL') {
+        stage('🌐 Application URL') {
             steps {
-                sh '''
-                    MINIKUBE_IP=$(minikube ip)
-                    echo "Application disponible sur : http://$MINIKUBE_IP:30089"
-                '''
+                sh """
+                    MINIKUBE_IP=\$(minikube ip)
+                    echo "Application URL: http://\$MINIKUBE_IP:30089"
+                """
             }
         }
     }
 
     post {
         success {
-            echo 'Pipeline terminé avec succès'
+            echo "✅ Déploiement réussi"
         }
         failure {
-            echo 'Pipeline échoué'
-            sh '''
-                kubectl describe pods -n devops
-                kubectl get events -n devops
-            '''
+            echo "❌ Échec du déploiement"
+            sh """
+                kubectl describe pods -n ${KUBE_NAMESPACE}
+                kubectl get events -n ${KUBE_NAMESPACE}
+            """
         }
         always {
             cleanWs()
