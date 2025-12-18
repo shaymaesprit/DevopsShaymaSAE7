@@ -1,19 +1,18 @@
----
-# 1. PersistentVolume
+# PersistentVolume
 apiVersion: v1
 kind: PersistentVolume
 metadata:
   name: mysql-pv
-  namespace: devops
 spec:
   capacity:
-    storage: 10Gi
+    storage: 5Gi
   accessModes:
     - ReadWriteOnce
   hostPath:
     path: "/data/mysql"
+
 ---
-# 2. PersistentVolumeClaim
+# PersistentVolumeClaim
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -24,10 +23,10 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 10Gi
-  volumeName: mysql-pv
+      storage: 5Gi
+
 ---
-# 3. MySQL Deployment
+# MySQL Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,10 +44,9 @@ spec:
     spec:
       containers:
       - name: mysql
-        image: mysql:5.7
+        image: mysql:8.0
         ports:
         - containerPort: 3306
-          name: mysql
         env:
         - name: MYSQL_ROOT_PASSWORD
           valueFrom:
@@ -56,39 +54,45 @@ spec:
               name: mysql-secret
               key: root-password
         - name: MYSQL_DATABASE
-          value: "devops_db"
+          valueFrom:
+            configMapKeyRef:
+              name: mysql-config
+              key: database-name
         volumeMounts:
         - name: mysql-storage
           mountPath: /var/lib/mysql
-        livenessProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -c
-            - mysqladmin ping -u root -p$MYSQL_ROOT_PASSWORD
-          initialDelaySeconds: 30
-          periodSeconds: 10
       volumes:
       - name: mysql-storage
         persistentVolumeClaim:
           claimName: mysql-pvc
+
 ---
-# 4. MySQL Service (ClusterIP)
+# MySQL Service (ClusterIP)
 apiVersion: v1
 kind: Service
 metadata:
   name: mysql-service
   namespace: devops
 spec:
-  selector:
-    app: mysql
   type: ClusterIP
   ports:
   - port: 3306
     targetPort: 3306
-    protocol: TCP
+  selector:
+    app: mysql
+
 ---
-# MySQL Secret
+# ConfigMap for MySQL config
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-config
+  namespace: devops
+data:
+  database-name: "student_db"
+
+---
+# Secret for MySQL credentials
 apiVersion: v1
 kind: Secret
 metadata:
@@ -96,4 +100,6 @@ metadata:
   namespace: devops
 type: Opaque
 stringData:
-  root-password: "P@ssw0rd123"
+  root-password: "root@123"
+  db-user: "student_user"
+  db-password: "student@123"
