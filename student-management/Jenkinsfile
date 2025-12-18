@@ -7,10 +7,8 @@ pipeline {
     }
 
     environment {
-        PROJECT_DIR = "student-management"
         KUBE_NAMESPACE = "devops"
-        DOCKER_IMAGE = "student-management"
-        DOCKER_TAG = "latest"
+        DOCKER_IMAGE = "student-management:latest"
     }
 
     stages {
@@ -18,7 +16,11 @@ pipeline {
         stage('📥 Checkout Code') {
             steps {
                 checkout scm
-            }
+                script {
+                    env.GIT_COMMIT_SHORT = env.GIT_COMMIT.take(7)
+                    env.IMAGE_TAG = "${DOCKER_IMAGE}-${GIT_COMMIT_SHORT}
+                }
+            }    
         }
 
         stage('🏗️ Build Maven') {
@@ -29,73 +31,28 @@ pipeline {
             }
         }
 
-        stage('🔍 Verify Minikube') {
-            steps {
-                sh """
-                    echo "Checking Minikube status..."
-                    minikube status || (echo "Minikube not running!" && exit 1)
-                    
-                    echo "Verifying kubectl connection..."
-                    kubectl config use-context minikube
-                    kubectl cluster-info
-                    kubectl get nodes
-                """
-            }
-        }
-
-        stage('🐳 Build Docker Image (Minikube)') {
+        stage('🐳 Build Docker Image ') {
             steps {
                 dir("${PROJECT_DIR}") {
                     sh """
                         echo "Configuring Docker to use Minikube daemon..."
-                        eval \$(minikube docker-env --shell bash)
+                        eval $(minikube docker-env )
                         
-                        echo "Building Docker image..."
-                        docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+                        docker build -t ${IMAGE_TAG} .
                         
                         echo "Verifying image was built..."
-                        docker images | grep ${DOCKER_IMAGE}
+                        docker images | grep ${IMAGE_TAG}
                     """
                 }
             }
         }
 
-        stage('📦 Deploy Kubernetes Resources') {
+        stage('📦 Deploy Kubernetes ') {
             steps {
                 sh """
-                    echo "Deploying to namespace: ${KUBE_NAMESPACE}"
-                    kubectl apply -f k8s/ -n ${KUBE_NAMESPACE}
+                    kubectl set image deployment/spring-app spring-app=${IMAGE_TAG} -n devops
+                    kubectl rollout status deployment/spring-app -n devops
                 """
-            }
-        }
-
-        stage('🔄 Restart Spring Deployment') {
-            steps {
-                sh """
-                    kubectl rollout restart deployment/student-management -n ${KUBE_NAMESPACE}
-                    kubectl rollout status deployment/student-management -n ${KUBE_NAMESPACE} --timeout=5m
-                """
-            }
-        }
-
-        stage('🧪 Verify Deployment') {
-            steps {
-                sh """
-                    echo "Pods in namespace ${KUBE_NAMESPACE}:"
-                    kubectl get pods -n ${KUBE_NAMESPACE}
-                    
-                    echo "Services in namespace ${KUBE_NAMESPACE}:"
-                    kubectl get svc -n ${KUBE_NAMESPACE}
-                """
-            }
-        }
-
-        stage('🌐 Application URL') {
-            steps {
-                script {
-                    def minikubeIp = sh(script: 'minikube ip', returnStdout: true).trim()
-                    echo "✅ Application URL: http://${minikubeIp}: 30089"
-                }
             }
         }
     }
@@ -105,17 +62,7 @@ pipeline {
             echo "✅ Déploiement réussi!"
         }
         failure {
-            echo "❌ Échec du déploiement"
-            sh """
-                echo "=== Pod Details ==="
-                kubectl describe pods -n ${KUBE_NAMESPACE} || echo "Cannot connect to cluster"
-                
-                echo "=== Recent Events ==="
-                kubectl get events -n ${KUBE_NAMESPACE} --sort-by='. lastTimestamp' || echo "Cannot get events"
-                
-                echo "=== Minikube Status ==="
-                minikube status || echo "Minikube not accessible"
-            """
+            echo "❌ Échec du pipeline"
         }
         always {
             cleanWs()
