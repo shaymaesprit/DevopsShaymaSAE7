@@ -18,7 +18,7 @@ pipeline {
                 checkout scm
                 script {
                     env.GIT_COMMIT_SHORT = env.GIT_COMMIT.take(7)
-                    env.IMAGE_TAG = "${DOCKER_IMAGE}-${GIT_COMMIT_SHORT}
+                    env.IMAGE_TAG = "${DOCKER_IMAGE}-${GIT_COMMIT_SHORT}"
                 }
             }    
         }
