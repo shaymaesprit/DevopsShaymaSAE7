@@ -1,55 +1,122 @@
+---
+# PersistentVolume
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-pv
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/data/mysql"
+
+---
+# PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+  namespace: devops
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# ConfigMap pour la configuration MySQL
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-config
+  namespace: devops
+data:
+  database-name: "student_db"
+
+---
+# Secret pour les identifiants MySQL
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+  namespace: devops
+type: Opaque
+stringData:
+  root-password: "root@123"
+  db-user: "student_user"
+  db-password: "student@123"
+
+---
+# Deployment MySQL
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: student-management
+  name: mysql
   namespace: devops
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: student-management
+      app: mysql
   template:
     metadata:
       labels:
-        app: student-management
+        app: mysql
     spec:
       containers:
-      - name: student-management
-        image: student-management:latest
-        imagePullPolicy: Never
+      - name: mysql
+        image: mysql:8.0
         ports:
-        - containerPort: 8089
+        - containerPort: 3306
         env:
-        - name: SPRING_DATASOURCE_URL
-          value: "jdbc:mysql://mysql-service:3306/student_db"
-        - name: SPRING_DATASOURCE_USERNAME
+        - name: MYSQL_ROOT_PASSWORD
           valueFrom:
             secretKeyRef:
               name: mysql-secret
-              key: db-user
-        - name: SPRING_DATASOURCE_PASSWORD
+              key: root-password
+        - name: MYSQL_DATABASE
           valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: db-password
-        - name: SERVER_PORT
-          value: "8089"
+            configMapKeyRef:
+              name: mysql-config
+              key: database-name
         volumeMounts:
-        - name: config
-          mountPath: /config
+        - name: mysql-storage
+          mountPath: /var/lib/mysql
         livenessProbe:
-          httpGet:
-            path: /actuator/health
-            port: 8089
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - mysqladmin ping -u root -p${MYSQL_ROOT_PASSWORD}
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
-          httpGet:
-            path: /actuator/health
-            port: 8089
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - mysqladmin ping -u root -p${MYSQL_ROOT_PASSWORD}
           initialDelaySeconds: 20
           periodSeconds: 5
       volumes:
-      - name: config
-        configMap:
-          name: spring-config
+      - name: mysql-storage
+        persistentVolumeClaim:
+          claimName: mysql-pvc
+
+---
+# Service MySQL (ClusterIP)
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+  namespace: devops
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3306
+    targetPort: 3306
+  selector:
+    app: mysql
