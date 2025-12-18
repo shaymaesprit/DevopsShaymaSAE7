@@ -1,61 +1,33 @@
----
-# PersistentVolume
+# 1. PersistentVolume (PV)
 apiVersion: v1
 kind: PersistentVolume
 metadata:
   name: mysql-pv
 spec:
   capacity:
-    storage: 2Gi
+    storage: 1Gi
   accessModes:
     - ReadWriteOnce
   hostPath:
-    path: "/data/mysql"
-
+    path: /data/mysql
 ---
-# PersistentVolumeClaim
+# 2. PersistentVolumeClaim (PVC)
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: mysql-pvc
-  namespace: devops
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi
-
+      storage: 1Gi
 ---
-# ConfigMap pour la configuration MySQL
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: mysql-config
-  namespace: devops
-data:
-  database-name: "student_db"
-
----
-# Secret pour les identifiants MySQL
-apiVersion: v1
-kind: Secret
-metadata:
-  name: mysql-secret
-  namespace: devops
-type: Opaque
-stringData:
-  root-password: "root@123"
-  db-user: "student_user"
-  db-password: "student@123"
-
----
-# Deployment MySQL
+# 3. Deployment MySQL
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mysql
-  namespace: devops
 spec:
   replicas: 1
   selector:
@@ -67,56 +39,32 @@ spec:
         app: mysql
     spec:
       containers:
-      - name: mysql
-        image: mysql:8.0
-        ports:
-        - containerPort: 3306
-        env:
-        - name: MYSQL_ROOT_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: root-password
-        - name: MYSQL_DATABASE
-          valueFrom:
-            configMapKeyRef:
-              name: mysql-config
-              key: database-name
-        volumeMounts:
-        - name: mysql-storage
-          mountPath: /var/lib/mysql
-        livenessProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -c
-            - mysqladmin ping -u root -p${MYSQL_ROOT_PASSWORD}
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -c
-            - mysqladmin ping -u root -p${MYSQL_ROOT_PASSWORD}
-          initialDelaySeconds: 20
-          periodSeconds: 5
+        - name: mysql
+          image: mysql:8.0
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: root123
+            - name: MYSQL_DATABASE
+              value: springdb
+          ports:
+            - containerPort: 3306
+          volumeMounts:
+            - mountPath: /var/lib/mysql
+              name: mysql-storage
       volumes:
-      - name: mysql-storage
-        persistentVolumeClaim:
-          claimName: mysql-pvc
-
+        - name: mysql-storage
+          persistentVolumeClaim:
+            claimName: mysql-pvc
 ---
-# Service MySQL (ClusterIP)
+# 4. Service MySQL (ClusterIP)
 apiVersion: v1
 kind: Service
 metadata:
   name: mysql-service
-  namespace: devops
 spec:
-  type: ClusterIP
-  ports:
-  - port: 3306
-    targetPort: 3306
   selector:
     app: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306
+  type: ClusterIP
