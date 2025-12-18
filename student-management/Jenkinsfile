@@ -7,6 +7,7 @@ pipeline {
     }
 
     environment {
+        PROJECT_DIR = "student-management"
         KUBE_NAMESPACE = "devops"
         DOCKER_IMAGE = "student-management:latest"
     }
@@ -25,12 +26,15 @@ pipeline {
 
         stage('🏗️ Build Maven') {
             steps {
+                dir("${PROJECT_DIR}") {
                     sh 'mvn clean package -DskipTests'
+                }
             }
         }
 
         stage('🐳 Build Docker Image ') {
             steps {
+                dir("${PROJECT_DIR}") {
                     sh """
                         echo "Configuring Docker to use Minikube daemon..."
                         eval \$(minikube docker-env)
@@ -40,6 +44,7 @@ pipeline {
                         echo "Verifying image was built..."
                         docker images | grep ${IMAGE_TAG}
                     """
+                }
              }
         }
 
