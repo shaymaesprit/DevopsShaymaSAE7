@@ -25,9 +25,7 @@ pipeline {
 
         stage('🏗️ Build Maven') {
             steps {
-                dir("${PROJECT_DIR}") {
                     sh 'mvn clean package -DskipTests'
-                }
             }
         }
 
@@ -42,8 +40,7 @@ pipeline {
                         echo "Verifying image was built..."
                         docker images | grep ${IMAGE_TAG}
                     """
-                }
-            }
+             }
         }
 
         stage('📦 Deploy Kubernetes ') {
@@ -53,7 +50,6 @@ pipeline {
                     kubectl rollout status deployment/spring-app -n devops
                 """
             }
-        }
     }
 
     post {
