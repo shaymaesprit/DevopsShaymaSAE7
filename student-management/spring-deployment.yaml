@@ -34,7 +34,7 @@ spec:
         image: student-management:latest
         imagePullPolicy: Never
         ports:
-        - containerPort: 8080
+        - containerPort: 8089
         env:
         - name: SPRING_DATASOURCE_URL
           value: "jdbc:mysql://mysql-service:3306/student_db"
@@ -66,8 +66,8 @@ metadata:
 spec:
   type: NodePort
   ports:
-  - port: 8080
-    targetPort: 8080
+  - port: 8089
+    targetPort: 8089
     nodePort: 30080
   selector:
     app: student-management
