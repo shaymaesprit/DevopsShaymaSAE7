@@ -28,7 +28,9 @@ pipeline {
        stage('SonarQube Analysis') {
     steps {
         withSonarQubeEnv('SonarQube') {
+            dir("${PROJECT_DIR}") {
             sh "mvn -B sonar:sonar -Dsonar.projectKey=projet -Dsonar.projectName=projet -Dsonar.java.binaries=target/classes"
+        }
         }
     }
 }
