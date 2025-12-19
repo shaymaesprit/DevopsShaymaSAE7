@@ -28,7 +28,7 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('SonarQube') {
-                    bat '''
+                    sh '''
                     mvn -B sonar:sonar ^
                       -Dsonar.projectKey=projet ^
                       -Dsonar.projectName=projet ^
