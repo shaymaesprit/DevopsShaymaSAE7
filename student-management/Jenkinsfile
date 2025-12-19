@@ -28,15 +28,11 @@ pipeline {
        stage('SonarQube Analysis') {
     steps {
         withSonarQubeEnv('SonarQube') {
-            sh '''
-                mvn -B sonar:sonar \
-                  -Dsonar.projectKey=projet \
-                  -Dsonar.projectName=projet \
-                  -Dsonar.java.binaries=target/classes
-            '''
+            sh "mvn -B sonar:sonar -Dsonar.projectKey=projet -Dsonar.projectName=projet -Dsonar.java.binaries=target/classes"
         }
     }
 }
+
 
 
 
