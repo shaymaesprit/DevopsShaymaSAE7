@@ -25,7 +25,15 @@ pipeline {
         }
 
         
-       stage('SonarQube Analysis') {
+        stage('🏗️ Build Maven') {
+            steps {
+                dir("${PROJECT_DIR}") {
+                    sh 'mvn clean package -DskipTests'
+                }
+            }
+        }
+
+         stage('SonarQube Analysis') {
     steps {
         withSonarQubeEnv('SonarQube') {
             dir("${PROJECT_DIR}") {
@@ -34,17 +42,6 @@ pipeline {
         }
     }
 }
-
-
-
-
-        stage('🏗️ Build Maven') {
-            steps {
-                dir("${PROJECT_DIR}") {
-                    sh 'mvn clean package -DskipTests'
-                }
-            }
-        }
 
         stage('🐳 Build Docker Image ') {
             steps {
