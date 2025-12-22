@@ -1,6 +1,5 @@
 pipeline {
     agent any
-
     tools {
         jdk 'JAVA-HOME'      // ✅ Corrigé: avec tiret
         maven 'M2-HOME'      // ✅ Corrigé: avec tiret
