@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     tools {
-        jdk 'JAVA_HOME'
-        maven 'M2_HOME'
+        jdk 'JAVA-HOME'      // ✅ Corrigé: avec tiret
+        maven 'M2-HOME'      // ✅ Corrigé: avec tiret
     }
 
     environment {
@@ -21,10 +21,9 @@ pipeline {
                     env.GIT_COMMIT_SHORT = env.GIT_COMMIT.take(7)
                     env.IMAGE_TAG = "${DOCKER_IMAGE}-${GIT_COMMIT_SHORT}"
                 }
-            }    
+            }
         }
 
-        
         stage('🏗️ Build Maven') {
             steps {
                 dir("${PROJECT_DIR}") {
@@ -33,33 +32,33 @@ pipeline {
             }
         }
 
-         stage('SonarQube Analysis') {
-    steps {
-        withSonarQubeEnv('SonarQube') {
-            dir("${PROJECT_DIR}") {
-            sh "mvn -B sonar:sonar -Dsonar.projectKey=projet -Dsonar.projectName=projet -Dsonar.java.binaries=target/classes"
+        stage('🔍 SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    dir("${PROJECT_DIR}") {
+                        sh "mvn -B sonar:sonar -Dsonar.projectKey=projet -Dsonar.projectName=projet -Dsonar.java.binaries=target/classes"
+                    }
+                }
+            }
         }
-        }
-    }
-}
 
-        stage('🐳 Build Docker Image ') {
+        stage('🐳 Build Docker Image') {
             steps {
                 dir("${PROJECT_DIR}") {
                     sh """
                         echo "Configuring Docker to use Minikube daemon..."
                         eval \$(minikube docker-env)
-                        
+
                         docker build -t ${IMAGE_TAG} .
-                        
+
                         echo "Verifying image was built..."
                         docker images | grep ${IMAGE_TAG}
                     """
                 }
-             }
+            }
         }
 
-        stage('📦 Deploy Kubernetes ') {
+        stage('📦 Deploy Kubernetes') {
             steps {
                 sh """
                     kubectl set image deployment/spring-app spring-app=${IMAGE_TAG} -n devops
@@ -68,6 +67,7 @@ pipeline {
             }
         }
     }
+
     post {
         success {
             echo "✅ Déploiement réussi!"
