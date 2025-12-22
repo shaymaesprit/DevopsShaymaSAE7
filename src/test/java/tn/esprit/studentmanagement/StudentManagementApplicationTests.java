@@ -1,6 +1,5 @@
 package tn.esprit.studentmanagement;
 
-
 import org.junit.jupiter.api.Test;                     // JUnit 5
 import static org.junit.jupiter.api.Assertions.assertTrue; // JUnit 5 Assertions
 
@@ -11,7 +10,7 @@ class StudentManagementApplicationTests {
 
     @Test
     void contextLoads() {
-        // Exemple minimal pour que le test compile
-        assertTrue(true);
+        assertTrue(true); // Test minimal pour compiler correctement
     }
 }
+
